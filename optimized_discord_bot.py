@@ -508,6 +508,7 @@ class OptimizedOllamaClient:
         self.model_cache = {}  # Track loaded models
         self.active_requests = 0
         self.max_concurrent = 4
+        self.session = None  # Add persistent session attribute
 
         if PERFORMANCE_MONITORING:
             self.async_client = AsyncClient(host=base_url)
@@ -622,6 +623,17 @@ class OptimizedOllamaClient:
                     return await response.json()
                 else:
                     raise Exception(f"Ollama error: {response.status}")
+
+    async def create_session(self):
+        """Create persistent aiohttp session"""
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+
+    async def close_session(self):
+        """Close persistent aiohttp session"""
+        if self.session and not self.session.closed:
+            await self.session.close()
+            self.session = None
 
     def format_messages_for_bpe(self, messages: List[Dict]) -> List[Dict]:
         """Format messages with proper BPE tags for optimal tokenization"""
@@ -2048,8 +2060,10 @@ class OptimizedDiscordBot(commands.Bot):
         
         if any(word in input_lower for word in positive_words):
             current_mood = min(10, current_mood + 1)
+            print(f"[MOOD] User {user_id}: {old_mood} -> {current_mood} (positive: {user_input[:50]})")
         elif any(word in input_lower for word in negative_words):
             current_mood = max(-10, current_mood - 1)
+            print(f"[MOOD] User {user_id}: {old_mood} -> {current_mood} (negative: {user_input[:50]})")
 
         self.mood_points[user_id] = current_mood
         
@@ -2148,12 +2162,14 @@ Generate ONE short status (under 30 chars):"""
     async def generate_poml_response(self, user_input: str, username: str, user_id: str) -> tuple[List[Dict], bool]:
         """Generate response using POML templates"""
         if not POML_AVAILABLE or 'personality' not in self.poml_templates:
+            print(f"[DEBUG] POML not available or templates missing. POML_AVAILABLE: {POML_AVAILABLE}, Templates: {list(self.poml_templates.keys())}")
             return [], False
 
         try:
             # Update user mood
             mood_points = self.adjust_user_mood(user_id, user_input)
             tone = self.get_tone_from_mood(mood_points)
+            print(f"[DEBUG] POML processing: user_id={user_id}, mood={mood_points}, tone={tone}")
 
             # Build context for POML template
             context = {
@@ -2173,9 +2189,10 @@ Generate ONE short status (under 30 chars):"""
                 if isinstance(template_content, str):
                     template_content = template_content.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
                 
-                result = poml(template_content, context=context)
+                result = poml(template_content, context=context, chat=True)
+                print(f"[DEBUG] POML processed successfully with mood={mood_points}, tone={tone}")
 
-                # Handle different POML result formats
+                # Handle POML result format (returns list with speaker/content)
                 if isinstance(result, list) and len(result) > 0:
                     # Extract content from POML list format
                     content_parts = []
@@ -2214,7 +2231,7 @@ Generate ONE short status (under 30 chars):"""
                     try:
                         # Use the template content directly without complex processing
                         template_content = self.poml_templates['personality'].replace("output-schema", "outputformat")
-                        result = poml(template_content, context=context)
+                        result = poml(template_content, context=context, chat=True)
                         if result:
                             system_content = str(result) if not isinstance(result, str) else result
                             messages = [
@@ -3424,7 +3441,7 @@ async def main():
         print(f"[ERROR] Bot error: {e}")
     finally:
         if bot.ollama.session:
-            await bot.ollama.session.close()
+            await bot.ollama.close_session()
 
 if __name__ == "__main__":
     print("[INIT] Starting Optimized Discord Bot...")
