@@ -1,4 +1,4 @@
-# 🎭 Hikari-chan Discord Bot
+# 🎭 Waifassistant Discord Bot
 
 A high-performance Discord bot with AI vision analysis, POML personality system, and comprehensive tool integration.
 
@@ -198,26 +198,26 @@ Your bot needs these permissions:
 
 ### 1. Basic Chat Test
 ```
-@Hikari-chan Hello!
+@Waifassistant Hello!
 ```
 Expected: Tsundere personality response
 
 ### 2. Tool Test
 ```
-@Hikari-chan what time is it?
+@Waifassistant what time is it?
 ```
 Expected: Current date and time
 
 ### 3. Weather Test
 ```
-@Hikari-chan what's the weather in Tokyo?
+@Waifassistant what's the weather in Tokyo?
 ```
 Expected: Current weather data (uses free Open-Meteo API)
 
 ### 4. Image Analysis Test
 Upload an image and tag the bot:
 ```
-@Hikari-chan [upload image]
+@Waifassistant [upload image]
 ```
 Expected: Detailed image analysis
 
@@ -231,36 +231,36 @@ Expected: Bot status with model information
 
 ### Basic Chat
 ```
-@Hikari-chan Hello!
-@Hikari-chan How are you today?
+@Waifassistant Hello!
+@Waifassistant How are you today?
 ```
 
 ### Image Analysis
 ```
-@Hikari-chan [upload image] - Auto-analyzes uploaded images
-@Hikari-chan analyze this image [upload image]
-@Hikari-chan what do you see in this picture?
+@Waifassistant [upload image] - Auto-analyzes uploaded images
+@Waifassistant analyze this image [upload image]
+@Waifassistant what do you see in this picture?
 ```
 
 ### Tools & Search
 ```
-@Hikari-chan search for Python tutorials
-@Hikari-chan what's the weather in Tokyo?
-@Hikari-chan calculate 25 * 17 + 100
-@Hikari-chan what time is it?
+@Waifassistant search for Python tutorials
+@Waifassistant what's the weather in Tokyo?
+@Waifassistant calculate 25 * 17 + 100
+@Waifassistant what time is it?
 ```
 
 ### User Analysis
 ```
-@Hikari-chan analyze @username
-@Hikari-chan tell me about @user
+@Waifassistant analyze @username
+@Waifassistant tell me about @user
 ```
 
 ### Discord Actions
 ```
-@Hikari-chan who's online?
-@Hikari-chan show server emojis
-@Hikari-chan get @user's avatar
+@Waifassistant who's online?
+@Waifassistant show server emojis
+@Waifassistant get @user's avatar
 ```
 
 ## 🎛️ Admin Commands
@@ -305,7 +305,7 @@ The bot uses POML (Personality-Oriented Markup Language) templates for dynamic r
 
 This bot uses **POML (Prompt Orchestration Markup Language)** for advanced AI prompting. The templates are located in the `templates/` folder:
 
-- `personality.poml` - Defines Hikari-chan's tsundere personality
+- `personality.poml` - Defines Waifassistant's tsundere personality
 - `mood_system.poml` - Manages emotional states and responses
 - `tools.poml` - Configures tool usage and function calling
 
@@ -343,7 +343,7 @@ OLLAMA_NUM_PARALLEL=4               # Parallel requests
 
 ## 📁 File Structure After Setup
 ```
-hikari-chan-bot/
+waifassistant-discord-bot/
 ├── optimized_discord_bot.py    # Main bot file
 ├── requirements.txt            # Python dependencies (frozen versions)
 ├── .env                        # Environment variables (create from .env.example)
@@ -352,7 +352,7 @@ hikari-chan-bot/
 ├── README.md                  # This file
 ├── .venv/                     # Virtual environment (recommended)
 └── templates/
-    ├── personality.poml       # Tsundere personality template
+    ├── personality.poml       # Waifassistant's tsundere personality template
     ├── mood_system.poml       # Mood tracking system
     └── tools.poml             # Tool configuration
 ```
@@ -446,6 +446,11 @@ Enable detailed logging by checking console output for:
 
 This project is open source. Feel free to modify and distribute.
 
+## 🤝 Contributors
+
+- **SUBSECT** - Original developer and creator
+- **Augment Agent** - Documentation improvements, setup guide, and dependency management
+
 ## 🤝 Contributing
 
 Contributions welcome! Please ensure:
@@ -477,4 +482,4 @@ For support:
 
 ---
 
-**Happy chatting with Hikari-chan! 🎭✨**
+**Happy chatting with Waifassistant! 🎭✨**
