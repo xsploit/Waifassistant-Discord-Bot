@@ -1951,6 +1951,23 @@ class OptimizedDiscordBot(commands.Bot):
         print("[INIT] Optimized Discord Bot initialized")
         print(f"[CONFIG] KV Cache: {os.environ.get('OLLAMA_KV_CACHE_TYPE')}")
         print(f"[CONFIG] Flash Attention: {os.environ.get('OLLAMA_FLASH_ATTENTION')}")
+        
+        # Debug: List all registered commands after initialization
+        print(f"[DEBUG] Registered commands: {[cmd.name for cmd in self.commands]}")
+    
+    async def setup_hook(self):
+        """Setup hook to load commands"""
+        await self.add_cog(BotCommands(self))
+        print(f"[DEBUG] Commands loaded: {[cmd.name for cmd in self.commands]}")
+    
+    async def on_command(self, ctx):
+        """Debug: Track when any command is invoked"""
+        print(f"[COMMAND] Command '{ctx.command.name}' invoked by {ctx.author.name}")
+    
+    async def on_command_error(self, ctx, error):
+        """Debug: Track command errors"""
+        print(f"[COMMAND ERROR] Command '{ctx.command}' failed: {error}")
+        await ctx.send(f"❌ Command error: {error}")
     
     def create_paginated_embed(self, title: str, items: list, page: int = 1, items_per_page: int = 10, 
                               color: int = 0x00ff88, item_formatter=None) -> tuple:
@@ -2229,7 +2246,13 @@ Generate ONE short status (under 30 chars):"""
         if message.author.bot:
             return
             
-        # Only respond to @ mentions
+        # Process commands first
+        if message.content.startswith('!'):
+            print(f"[DEBUG] Command detected: {message.content}")
+            await self.process_commands(message)
+            return
+        
+        # Only respond to @ mentions for chat
         if not self.user.mentioned_in(message):
             return
             
@@ -2900,16 +2923,303 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
 
         return response
 
+
 # =============================================================================
-# BOT COMMANDS
+# MODEL SELECTION VIEW
 # =============================================================================
 
+class ModelSelectView(discord.ui.View):
+    """Enhanced model selection with type switching and pagination"""
+
+    def __init__(self, models, bot, model_type="main", page=1):
+        super().__init__(timeout=120)  # Extended timeout for model switching
+        self.bot = bot
+        self.all_models = models
+        self.model_type = model_type
+        self.page = page
+        self.models_per_page = 20  # Leave room for type selector
+
+        # Model categorization based on common patterns
+        self.model_categories = {
+            "main": self.categorize_main_models(models),
+            "vision": self.categorize_vision_models(models),
+            "analysis": self.categorize_analysis_models(models),
+            "code": self.categorize_code_models(models),
+            "embedding": self.categorize_embedding_models(models)
+        }
+
+        self.current_models = self.model_categories.get(model_type, models)
+        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
+
+        self.setup_view()
+
+    def categorize_main_models(self, models):
+        """Categorize main chat/LLM models"""
+        main_keywords = ['llama', 'qwen', 'mistral', 'gemma', 'phi', 'neural', 'instruct', 'chat', 'subsect']
+        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision']
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
+        embed_keywords = ['embed', 'nomic']
+
+        main_models = []
+        for model in models:
+            model_lower = model.lower()
+            # Exclude specialized models
+            if any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
+                continue
+            # Include main chat models
+            if any(kw in model_lower for kw in main_keywords) or not any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
+                main_models.append(model)
+
+        return main_models or models[:10]  # Fallback to first 10 if no matches
+
+    def categorize_vision_models(self, models):
+        """Categorize vision/multimodal models"""
+        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision', 'minicpm', 'cogvlm']
+        return [m for m in models if any(kw in m.lower() for kw in vision_keywords)]
+
+    def categorize_analysis_models(self, models):
+        """Categorize analysis/reasoning models"""
+        analysis_keywords = ['qwen', 'llama', 'mistral', 'gemma', 'phi', 'reasoning', 'think']
+        vision_keywords = ['vision', 'llava', 'moondream']
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
+
+        analysis_models = []
+        for model in models:
+            model_lower = model.lower()
+            # Include reasoning models but exclude vision/code
+            if any(kw in model_lower for kw in analysis_keywords) and not any(kw in model_lower for kw in vision_keywords + code_keywords):
+                analysis_models.append(model)
+
+        return analysis_models or models[:5]  # Fallback
+
+    def categorize_code_models(self, models):
+        """Categorize code generation models"""
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder', 'codellama', 'granite-code']
+        return [m for m in models if any(kw in m.lower() for kw in code_keywords)]
+
+    def categorize_embedding_models(self, models):
+        """Categorize embedding models"""
+        embed_keywords = ['embed', 'nomic', 'bge', 'e5']
+        return [m for m in models if any(kw in m.lower() for kw in embed_keywords)]
+
+    def setup_view(self):
+        """Setup the view with model type selector, models dropdown, and navigation"""
+        self.clear_items()
+
+        # Model type selector (first row)
+        type_options = []
+        type_descriptions = {
+            "main": f"Main Chat Models ({len(self.model_categories['main'])})",
+            "vision": f"Vision/Multimodal ({len(self.model_categories['vision'])})",
+            "analysis": f"Analysis/Reasoning ({len(self.model_categories['analysis'])})",
+            "code": f"Code Generation ({len(self.model_categories['code'])})",
+            "embedding": f"Embedding Models ({len(self.model_categories['embedding'])})"
+        }
+
+        for model_type, description in type_descriptions.items():
+            if self.model_categories[model_type]:  # Only show if models exist
+                type_options.append(discord.SelectOption(
+                    label=description,
+                    value=model_type,
+                    default=(model_type == self.model_type)
+                ))
+
+        if type_options:
+            type_select = discord.ui.Select(
+                placeholder="Select model type...",
+                options=type_options,
+                row=0
+            )
+            type_select.callback = self.type_callback
+            self.add_item(type_select)
+
+        # Models dropdown (second row)
+        start_idx = (self.page - 1) * self.models_per_page
+        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
+        page_models = self.current_models[start_idx:end_idx]
+
+        if page_models:
+            model_options = []
+            for model in page_models:
+                # Get current model for this type
+                if self.model_type == "main":
+                    current_model = getattr(self.bot, 'current_model', '')
+                elif self.model_type == "vision":
+                    current_model = getattr(self.bot, 'vision_model', '')
+                else:
+                    current_model = getattr(self.bot, 'current_model', '')
+
+                display_name = model if len(model) <= 90 else model[:87] + "..."
+                model_options.append(discord.SelectOption(
+                    label=display_name,
+                    description="Currently selected" if model == current_model else "Select this model",
+                    value=model,
+                    default=(model == current_model)
+                ))
+
+            model_select = discord.ui.Select(
+                placeholder=f"Choose {self.model_type} model... (Page {self.page}/{self.total_pages})",
+                options=model_options,
+                row=1
+            )
+            model_select.callback = self.model_callback
+            self.add_item(model_select)
+
+        # Add navigation buttons if multiple pages (third row)
+        if self.total_pages > 1:
+            # Previous button
+            prev_button = discord.ui.Button(
+                label="◀️ Previous",
+                style=discord.ButtonStyle.grey,
+                disabled=(self.page <= 1),
+                row=2
+            )
+            prev_button.callback = self.previous_page
+            self.add_item(prev_button)
+
+            # Page indicator
+            page_button = discord.ui.Button(
+                label=f"Page {self.page}/{self.total_pages}",
+                style=discord.ButtonStyle.blurple,
+                disabled=True,
+                row=2
+            )
+            self.add_item(page_button)
+
+            # Next button
+            next_button = discord.ui.Button(
+                label="Next ▶️",
+                style=discord.ButtonStyle.grey,
+                disabled=(self.page >= self.total_pages),
+                row=2
+            )
+            next_button.callback = self.next_page
+            self.add_item(next_button)
+
+    async def type_callback(self, interaction: discord.Interaction):
+        """Handle model type selection"""
+        selected_type = interaction.data['values'][0]
+
+        # Update model type and reset to page 1
+        self.model_type = selected_type
+        self.current_models = self.model_categories.get(selected_type, self.all_models)
+        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
+        self.page = 1
+
+        # Rebuild view
+        self.setup_view()
+        embed = self.create_embed()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def model_callback(self, interaction: discord.Interaction):
+        """Handle model selection"""
+        selected_model = interaction.data['values'][0]
+
+        # Update the appropriate model type on the bot
+        if self.model_type == "main":
+            self.bot.current_model = selected_model
+        elif self.model_type == "vision":
+            self.bot.vision_model = selected_model
+        else:
+            self.bot.current_model = selected_model
+
+        embed = discord.Embed(
+            title="✅ Model Updated",
+            description=f"{self.model_type.title()} model changed to: `{selected_model}`",
+            color=0x00ff00
+        )
+
+        await interaction.response.edit_message(embed=embed, view=None)
+        print(f"[CONFIG] {self.model_type.title()} model changed to: {selected_model}")
+
+    async def previous_page(self, interaction: discord.Interaction):
+        """Handle previous page button"""
+        if self.page > 1:
+            self.page -= 1
+            self.setup_view()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        """Handle next page button"""
+        if self.page < self.total_pages:
+            self.page += 1
+            self.setup_view()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    def create_embed(self):
+        """Create the model selection embed"""
+        if self.model_type == "main":
+            current_model = getattr(self.bot, 'current_model', 'Unknown')
+        elif self.model_type == "vision":
+            current_model = getattr(self.bot, 'vision_model', 'Unknown')
+        else:
+            current_model = getattr(self.bot, 'current_model', 'Unknown')
+
+        start_idx = (self.page - 1) * self.models_per_page
+        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
+
+        embed = discord.Embed(
+            title=f"🤖 Select {self.model_type.title()} Model",
+            description=f"**Current {self.model_type} model:** `{current_model}`\n\n"
+                       f"**Available {self.model_type} models:** {len(self.current_models)}\n"
+                       f"**Showing:** {start_idx + 1}-{end_idx} of {len(self.current_models)}\n\n"
+                       f"1️⃣ Select model type from first dropdown\n"
+                       f"2️⃣ Choose specific model from second dropdown",
+            color=0x00ff00
+        )
+
+        # Add model type descriptions
+        type_descriptions = {
+            "main": "💬 Primary chat and conversation model",
+            "vision": "👁️ Image analysis and multimodal tasks",
+            "analysis": "🧠 User behavior analysis and insights",
+            "code": "💻 Code generation and programming help",
+            "embedding": "🔍 Text embedding and similarity search"
+        }
+
+        if self.model_type in type_descriptions:
+            embed.add_field(
+                name=f"{self.model_type.title()} Models",
+                value=type_descriptions[self.model_type],
+                inline=False
+            )
+
+        embed.set_footer(text="💡 Select a model type first, then choose from the available models")
+        return embed
+
+
+# =============================================================================
+# COMMAND COG
+# =============================================================================
+
+class BotCommands(commands.Cog):
+    """Bot commands organized as a Cog"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+    
+    @commands.command(name='bothelp')
+    async def help_command(self, ctx):
+        """Show available commands"""
+        embed = discord.Embed(title="🎭 Hikari Commands", description="Available commands:", color=0x9966cc)
+        embed.add_field(name="General", value="`!ping` - Test\n`!bothelp` - This help", inline=False)
+        embed.add_field(name="Model", value="`!model` - Show models\n`!status` - Bot status", inline=False)
+        embed.add_field(name="Other", value="`!clear` - Clear history", inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def ping(self, ctx):
+        """Simple test command"""
+        await ctx.send("Pong!")
+
     @commands.command(name='model')
-    @commands.has_permissions(administrator=True)
+    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
     async def model_select(self, ctx):
         """Select the main LLM model from available Ollama models with dropdown interface"""
         try:
-            # Get list of available models from Ollama
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.get('http://127.0.0.1:11434/api/tags') as response:
@@ -2924,8 +3234,8 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
                 await ctx.send("❌ No Ollama models found. Please install some models first.")
                 return
 
-            # Create paginated dropdown view
-            view = ModelSelectView(models, self)
+            # Create dropdown view
+            view = ModelSelectView(models, self.bot)
             embed = view.create_embed()
 
             await ctx.send(embed=embed, view=view)
@@ -2934,33 +3244,109 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
             print(f"❌ Error in model command: {e}")
             await ctx.send("❌ Error getting model list. Make sure Ollama is running.")
 
-    @model_select.error
-    async def model_select_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("❌ You need administrator permissions to use this command!")
+    @commands.command(name='status')
+    async def status_command(self, ctx):
+        """Show bot status"""
+        embed = discord.Embed(title="🤖 Bot Status", color=0x0099ff)
+        embed.add_field(name="Current Model", value=f"`{self.bot.current_model}`", inline=False)
+        embed.add_field(name="Vision Model", value=f"`{self.bot.vision_model}`", inline=False)
+        await ctx.send(embed=embed)
 
     @commands.command(name='clear')
     async def clear_history(self, ctx):
-        """Clear conversation history for this channel"""
+        """Clear conversation history"""
         channel_id = str(ctx.channel.id)
-        if channel_id in self.conversation_history:
-            del self.conversation_history[channel_id]
+        if channel_id in self.bot.conversation_history:
+            del self.bot.conversation_history[channel_id]
+        await ctx.send("🧹 History cleared!")
+
+    @commands.command(name='mood')
+    async def check_mood(self, ctx, user: discord.Member = None):
+        """Check mood points for a user"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+        mood_points = self.bot.get_user_mood(user_id)
+        tone = self.bot.get_tone_from_mood(mood_points)
 
         embed = discord.Embed(
-            title="🧹 History Cleared",
-            description="Conversation history cleared for this channel.",
-            color=0x00ff00
+            title=f"🎭 {target_user.display_name}'s Mood",
+            color=0xff69b4
         )
+
+        embed.add_field(
+            name="💝 Mood Points",
+            value=f"{mood_points}/10",
+            inline=True
+        )
+
+        embed.add_field(
+            name="😊 Current Tone",
+            value=tone.replace('-', ' ').title(),
+            inline=True
+        )
+
+        # Add mood description
+        mood_descriptions = {
+            "dere-hot": "💕 Overflowing sweetness!",
+            "cheerful": "😊 Happy and playful",
+            "soft-tsun": "😌 Mildly tsundere",
+            "classic-tsun": "😤 Traditional tsundere",
+            "grumpy-tsun": "😠 Annoyed but helpful",
+            "cold-tsun": "🥶 Cold but not mean",
+            "explosive-tsun": "💥 Very angry tsundere!"
+        }
+
+        embed.add_field(
+            name="📝 Description",
+            value=mood_descriptions.get(tone, "🤔 Neutral"),
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+    @commands.command(name='poml')
+    async def poml_status(self, ctx):
+        """Show POML status and templates"""
+        embed = discord.Embed(
+            title="🎭 POML Status",
+            color=0xff69b4
+        )
+
+        if POML_AVAILABLE:
+            embed.add_field(
+                name="✅ POML Available",
+                value="Microsoft's Prompt Orchestration Markup Language is active",
+                inline=False
+            )
+
+            embed.add_field(
+                name="📁 Loaded Templates",
+                value=f"{len(self.bot.poml_templates)} templates: {', '.join(self.bot.poml_templates.keys())}",
+                inline=False
+            )
+
+            embed.add_field(
+                name="🎯 Features",
+                value="• Structured JSON responses\n• Dynamic mood system\n• Context-aware prompts\n• Tool schema validation",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="❌ POML Not Available",
+                value="Install with: `pip install poml`",
+                inline=False
+            )
+
         await ctx.send(embed=embed)
 
     @commands.command(name='vision_model')
-    @commands.has_permissions(administrator=True)
+    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
     async def change_vision_model(self, ctx, *, model_name: str = None):
         """Change the vision analysis model"""
         if not model_name:
             embed = discord.Embed(
                 title="👁️ Current Vision Model",
-                description=f"Current vision model: `{self.vision_model}`",
+                description=f"Current vision model: `{self.bot.vision_model}`",
                 color=0x00ff00
             )
             await ctx.send(embed=embed)
@@ -2977,7 +3363,7 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
                 messages=[{"role": "user", "content": "Hello, can you see images?"}]
             )
 
-            self.vision_model = model_name
+            self.bot.vision_model = model_name
 
             embed = discord.Embed(
                 title="👁️ Vision Model Changed",
@@ -2995,138 +3381,17 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
             )
             await ctx.send(embed=embed)
 
-    @commands.command(name='status')
-    async def bot_status(self, ctx):
-        """Show bot status and optimization info"""
-        embed = discord.Embed(
-            title="Bot Status",
-            color=0x0099ff
-        )
-
-        embed.add_field(
-            name="🤖 Current Model",
-            value=f"`{self.current_model}`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="👁️ Vision Model",
-            value=f"`{self.vision_model}`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="Optimizations",
-            value=f"KV Cache: `{os.environ.get('OLLAMA_KV_CACHE_TYPE', 'Not set')}`\n"
-                  f"Flash Attention: `{os.environ.get('OLLAMA_FLASH_ATTENTION', 'Not set')}`\n"
-                  f"Parallel Requests: `{os.environ.get('OLLAMA_NUM_PARALLEL', 'Not set')}`",
-            inline=False
-        )
-
-        embed.add_field(
-            name="💬 Active Channels",
-            value=str(len(self.conversation_history)),
-            inline=True
-        )
-
-        embed.add_field(
-            name="Available Tools",
-            value=f"{len(ALL_TOOLS)} tools loaded",
-            inline=True
-        )
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='poml')
-    @commands.has_permissions(administrator=True)
-    async def poml_status(self, ctx):
-        """Show POML status and templates"""
-        embed = discord.Embed(
-            title="POML Status",
-            color=0xff69b4
-        )
-
-        if POML_AVAILABLE:
-            embed.add_field(
-                name="POML Available",
-                value="Microsoft's Prompt Orchestration Markup Language is active",
-                inline=False
-            )
-
-            embed.add_field(
-                name="Loaded Templates",
-                value=f"{len(self.poml_templates)} templates: {', '.join(self.poml_templates.keys())}",
-                inline=False
-            )
-
-            embed.add_field(
-                name="🎯 Features",
-                value="• Structured JSON responses\n• Dynamic mood system\n• Context-aware prompts\n• Tool schema validation",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="POML Not Available",
-                value="Install with: `pip install poml`",
-                inline=False
-            )
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='mood')
-    async def check_mood(self, ctx, user: discord.Member = None):
-        """Check mood points for a user"""
-        target_user = user or ctx.author
-        user_id = str(target_user.id)
-        mood_points = self.get_user_mood(user_id)
-        tone = self.get_tone_from_mood(mood_points)
-
-        embed = discord.Embed(
-            title=f"{target_user.display_name}'s Mood",
-            color=0xff69b4
-        )
-
-        embed.add_field(
-            name="Mood Points",
-            value=f"{mood_points}/10",
-            inline=True
-        )
-
-        embed.add_field(
-            name="Current Tone",
-            value=tone.replace('-', ' ').title(),
-            inline=True
-        )
-
-        # Add mood description
-        mood_descriptions = {
-            "dere-hot": "Overflowing sweetness!",
-            "cheerful": "Happy and playful",
-            "soft-tsun": "Mildly tsundere",
-            "classic-tsun": "Traditional tsundere",
-            "grumpy-tsun": "Annoyed but helpful",
-            "cold-tsun": "Cold but not mean",
-            "explosive-tsun": "Very angry tsundere!"
-        }
-
-        embed.add_field(
-            name="Description",
-            value=mood_descriptions.get(tone, "Neutral"),
-            inline=False
-        )
-
-        await ctx.send(embed=embed)
-
     @commands.command(name='updatestatus')
-    @commands.has_permissions(administrator=True)
+    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
     async def update_status_command(self, ctx):
         """Manually update the bot's status"""
         try:
             await ctx.send("Updating status...")
-            await self.update_dynamic_status()
+            await self.bot.update_dynamic_status()
             await ctx.send("Status updated!")
         except Exception as e:
             await ctx.send(f"Failed to update status: {str(e)}")
+
 
 # =============================================================================
 # MAIN EXECUTION
