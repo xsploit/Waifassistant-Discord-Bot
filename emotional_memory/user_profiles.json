@@ -1,0 +1,78 @@
+{
+  "120418341775998976": {
+    "user_id": "120418341775998976",
+    "username": "X-SPLOIT710",
+    "current_mood": "neutral",
+    "relationship_level": "stranger",
+    "trust_score": 0.5,
+    "familiarity_level": 0.0,
+    "conversation_count": 0,
+    "last_interaction": 1756062216.6986787,
+    "mood_points": 2.4000000000000004,
+    "emotional_stability": 0.8,
+    "personality_traits": {
+      "playfulness": 0.5,
+      "curiosity": 0.775,
+      "empathy": 0.6,
+      "humor": 0.4,
+      "seriousness": 0.3
+    },
+    "memories": [
+      {
+        "content": "hola",
+        "memory_type": "EMOTIONAL",
+        "importance_score": 0.3384141445159912,
+        "emotional_context": "ai_classified_compliment",
+        "timestamp": 1756059024.8496368,
+        "metadata": {}
+      },
+      {
+        "content": "you wanna go",
+        "memory_type": "MEMORY",
+        "importance_score": 0.25194101929664614,
+        "emotional_context": "ai_classified_request",
+        "timestamp": 1756059056.570865,
+        "metadata": {}
+      },
+      {
+        "content": "Yea",
+        "memory_type": "EMOTIONAL",
+        "importance_score": 0.2436077117919922,
+        "emotional_context": "ai_classified_compliment",
+        "timestamp": 1756059346.0688317,
+        "metadata": {}
+      },
+      {
+        "content": "<@1328281437354332201>  LOOP",
+        "memory_type": "CHAT",
+        "importance_score": 0.1464577317237854,
+        "emotional_context": "ai_classified_request",
+        "timestamp": 1756062216.6986787,
+        "metadata": {}
+      }
+    ],
+    "emotional_history": [
+      {
+        "timestamp": 1756059024.850637,
+        "mood_change": 10.0,
+        "new_mood": "neutral",
+        "mood_points": 0.8,
+        "reason": "Message content analysis: ai_classified_compliment"
+      },
+      {
+        "timestamp": 1756059056.570865,
+        "mood_change": 10.0,
+        "new_mood": "neutral",
+        "mood_points": 1.6,
+        "reason": "Message content analysis: ai_classified_request"
+      },
+      {
+        "timestamp": 1756059346.0698316,
+        "mood_change": 10.0,
+        "new_mood": "neutral",
+        "mood_points": 2.4000000000000004,
+        "reason": "Message content analysis: ai_classified_compliment"
+      }
+    ]
+  }
+}

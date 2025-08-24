@@ -33,6 +33,22 @@
           "message_id": null,
           "is_bot": true,
           "timestamp": 1756059058.6059525
+        },
+        {
+          "content": "Yea",
+          "author_id": "120418341775998976",
+          "author_name": "X-SPLOIT710",
+          "message_id": "1409239785238823056",
+          "is_bot": false,
+          "timestamp": 1756059345.2647161
+        },
+        {
+          "content": "Huh? What did you say? I don\u2019t know what that means! Also, why are you talking to me like this\u2014ugh, fine, you can go ahead and plan something, just don\u2019t expect me to be the one waiting around for you! :(",
+          "author_id": "1066054608142737460",
+          "author_name": "Hikari-Chan",
+          "message_id": null,
+          "is_bot": true,
+          "timestamp": 1756059348.2007577
         }
       ]
     },
@@ -40,7 +56,8 @@
     "recent_responses": {
       "1326833326605996093": [
         "H-Hola? Tch, so you're greeting me now, huh. Don't think I'm going to let you get away with it just because your voice is too quiet for my standards. :|",
-        "W-WHAT?! I-I'm not going anywhere with you! It's not like I even know where you live or what you're talking about - I mean, you can't just assume I'll come with you! Do you even have a map or something?! :("
+        "W-WHAT?! I-I'm not going anywhere with you! It's not like I even know where you live or what you're talking about - I mean, you can't just assume I'll come with you! Do you even have a map or something?! :(",
+        "Huh? What did you say? I don\u2019t know what that means! Also, why are you talking to me like this\u2014ugh, fine, you can go ahead and plan something, just don\u2019t expect me to be the one waiting around for you! :("
       ]
     },
     "last_cleanup": {
@@ -48,9 +65,9 @@
     }
   },
   "mood_points": {
-    "120418341775998976": 1.1600000000000001
+    "120418341775998976": 2.2600000000000002
   },
-  "timestamp": 1756059237.5806909,
+  "timestamp": 1756060121.7603137,
   "emotional_memory": {
     "user_profiles": {
       "120418341775998976": {
@@ -61,12 +78,12 @@
         "trust_score": 0.5,
         "familiarity_level": 0.0,
         "conversation_count": 0,
-        "last_interaction": 1756059056.570865,
-        "mood_points": 1.6,
+        "last_interaction": 1756059346.0698316,
+        "mood_points": 2.4000000000000004,
         "emotional_stability": 0.8,
         "personality_traits": {
           "playfulness": 0.5,
-          "curiosity": 0.75,
+          "curiosity": 0.775,
           "empathy": 0.6,
           "humor": 0.4,
           "seriousness": 0.3
@@ -87,6 +104,14 @@
             "emotional_context": "ai_classified_request",
             "timestamp": 1756059056.570865,
             "metadata": {}
+          },
+          {
+            "content": "Yea",
+            "memory_type": "EMOTIONAL",
+            "importance_score": 0.2436077117919922,
+            "emotional_context": "ai_classified_compliment",
+            "timestamp": 1756059346.0688317,
+            "metadata": {}
           }
         ],
         "emotional_history": [
@@ -103,15 +128,22 @@
             "new_mood": "neutral",
             "mood_points": 1.6,
             "reason": "Message content analysis: ai_classified_request"
+          },
+          {
+            "timestamp": 1756059346.0698316,
+            "mood_change": 10.0,
+            "new_mood": "neutral",
+            "mood_points": 2.4000000000000004,
+            "reason": "Message content analysis: ai_classified_compliment"
           }
         ]
       }
     },
-    "last_save": 1756058988.6504505
+    "last_save": 1756059346.0698316
   },
   "vector_tool_knowledge": {
     "storage_directory": "vector_tool_knowledge",
     "total_entries": 0,
-    "last_save": 1756059237.5806909
+    "last_save": 1756060121.7603137
   }
 }
