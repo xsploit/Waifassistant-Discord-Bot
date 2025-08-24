@@ -788,8 +788,12 @@ async def web_search(query: str, num_results: int = 5) -> dict:
     """Search the web using Serper API."""
     print(f"[TOOL] web_search called with query: {query}, num_results: {num_results}")
     try:
+        serper_api_key = os.getenv('SERPER_API_KEY')
+        if not serper_api_key:
+            return {"error": "SERPER_API_KEY not configured"}
+        
         headers = {
-            "X-API-KEY": "d03c7ebd4196bf9562d419973ae064bb959dde5b",
+            "X-API-KEY": serper_api_key,
             "Content-Type": "application/json"
         }
         payload = json.dumps({"q": query, "num": num_results})
@@ -820,8 +824,12 @@ async def web_scrape(url: str) -> dict:
     """Scrape a webpage using Serper API."""
     print(f"[TOOL] web_scrape called with url: {url}")
     try:
+        serper_api_key = os.getenv('SERPER_API_KEY')
+        if not serper_api_key:
+            return {"error": "SERPER_API_KEY not configured"}
+        
         headers = {
-            "X-API-KEY": "d03c7ebd4196bf9562d419973ae064bb959dde5b",
+            "X-API-KEY": serper_api_key,
             "Content-Type": "application/json"
         }
         payload = json.dumps({"url": url})
@@ -945,8 +953,12 @@ async def news_search(query: str, num_results: int = 5) -> dict:
     """Search for recent news using dedicated Serper News API."""
     print(f"[TOOL] news_search called with query: {query}, num_results: {num_results}")
     try:
+        serper_api_key = os.getenv('SERPER_API_KEY')
+        if not serper_api_key:
+            return {"error": "SERPER_API_KEY not configured"}
+        
         headers = {
-            "X-API-KEY": "d03c7ebd4196bf9562d419973ae064bb959dde5b",
+            "X-API-KEY": serper_api_key,
             "Content-Type": "application/json"
         }
         payload = json.dumps({"q": query, "num": num_results})
