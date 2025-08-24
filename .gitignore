@@ -100,6 +100,14 @@ config.yml
 secrets.json
 
 # Backup files
+*_backup.py
+*_backup.*
+backup_*
+*.backup
+optimized_discord_bot_backup.py
+emotional_memory/backups/
+
+# Backup files
 *.bak
 *.backup
 *.old
