@@ -43,7 +43,7 @@ except ImportError:
 try:
     from poml import poml
     POML_AVAILABLE = True
-    print("[OK] POML available - Advanced prompt orchestration enabled")
+    print("[OK] POML available - Using correct core API")
 except ImportError:
     POML_AVAILABLE = False
     print("[WARNING] POML not installed - Using basic prompts (pip install poml to enable)")
@@ -2055,27 +2055,23 @@ class OptimizedDiscordBot(commands.Bot):
         return embed, view
     
     def load_poml_templates(self):
-        """Load POML templates if available"""
+        """Load POML templates if available - OPTIMIZED"""
         if not POML_AVAILABLE:
             return
 
+        # Fast template loading without encoding checks
         template_files = {
             'personality': 'templates/personality.poml',
-            'tools': 'templates/tools.poml',
+            'tools': 'templates/tools.poml', 
             'mood_system': 'templates/mood_system.poml'
         }
 
         for name, filepath in template_files.items():
             try:
                 if os.path.exists(filepath):
-                    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-                        content = f.read()
-                        # Clean up any problematic Unicode characters
-                        content = content.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-                        self.poml_templates[name] = content
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        self.poml_templates[name] = f.read()
                     print(f"[OK] Loaded POML template: {name}")
-                else:
-                    print(f"[WARNING] POML template not found: {filepath}")
             except Exception as e:
                 print(f"[ERROR] Error loading POML template {name}: {e}")
 
@@ -2298,93 +2294,51 @@ Generate ONE short status (under 30 chars):"""
                 await asyncio.sleep(300)  # Wait 5 minutes before retry
 
     async def generate_poml_response(self, user_input: str, username: str, user_id: str) -> tuple[List[Dict], bool]:
-        """Generate response using POML templates"""
+        """Generate response using POML templates - OPTIMIZED"""
         if not POML_AVAILABLE or 'personality' not in self.poml_templates:
-            print(f"[DEBUG] POML not available or templates missing. POML_AVAILABLE: {POML_AVAILABLE}, Templates: {list(self.poml_templates.keys())}")
             return [], False
 
         try:
-            # Update user mood
+            # Update user mood (fast operations only)
             mood_points = self.adjust_user_mood(user_id, user_input)
             tone = self.get_tone_from_mood(mood_points)
-            print(f"[DEBUG] POML processing: user_id={user_id}, mood={mood_points}, tone={tone}")
 
-            # Build context for POML template
+            # Minimal context for POML template
             context = {
                 "user_input": user_input,
                 "username": username,
                 "mood_points": mood_points,
-                "tone": tone,
-                "timestamp": datetime.now().isoformat()
+                "tone": tone
             }
 
-            # Process POML template (simplified approach)
-            try:
-                # Use basic POML processing with proper encoding handling
-                template_content = self.poml_templates['personality']
+            # Direct POML processing - no encoding checks or debug
+            template_content = self.poml_templates['personality']
+            result = poml(template_content, context=context, chat=True)
+
+            # Fast result processing
+            if isinstance(result, list):
+                messages = []
+                for msg in result:
+                    if isinstance(msg, dict) and msg.get("content", "").strip():
+                        role_key = msg.get("role") or msg.get("speaker", "system")
+                        role = "system" if role_key.lower() == "system" else "assistant" if role_key.lower() in ["ai", "assistant"] else role_key.lower()
+                        messages.append({"role": role, "content": str(msg["content"])})
                 
-                # Ensure proper encoding for Unicode characters
-                if isinstance(template_content, str):
-                    template_content = template_content.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+                # Add user message if missing
+                if not any(msg.get('role') == 'user' for msg in messages):
+                    messages.append({"role": "user", "content": user_input})
                 
-                result = poml(template_content, context=context, chat=True)
-                print(f"[DEBUG] POML processed successfully with mood={mood_points}, tone={tone}")
-
-                # Handle POML result format (returns list with speaker/content)
-                if isinstance(result, list) and len(result) > 0:
-                    # Extract content from POML list format
-                    content_parts = []
-                    for item in result:
-                        if isinstance(item, dict) and 'content' in item:
-                            content_parts.append(item['content'])
-                        else:
-                            content_parts.append(str(item))
-
-                    # Create system message from POML content
-                    system_content = '\n'.join(content_parts)
-                    messages = [
-                        {"role": "system", "content": system_content},
-                        {"role": "user", "content": user_input}
-                    ]
-                    return messages, True
-
-                elif isinstance(result, dict):
-                    # Handle dict format
-                    content = result.get('content', str(result))
-                    messages = [
-                        {"role": "system", "content": content},
-                        {"role": "user", "content": user_input}
-                    ]
-                    return messages, True
-
-                else:
-                    print(f"[WARNING] Unexpected POML result format: {type(result)}")
-                    return [], False
-
-            except Exception as e:
-                error_msg = str(e)
-                if "output-schema" in error_msg:
-                    print(f"[ERROR] POML component error - trying fallback: {e}")
-                    # Try with a simpler approach or disable problematic features
-                    try:
-                        # Use the template content directly without complex processing
-                        template_content = self.poml_templates['personality'].replace("output-schema", "outputformat")
-                        result = poml(template_content, context=context, chat=True)
-                        if result:
-                            system_content = str(result) if not isinstance(result, str) else result
-                            messages = [
-                                {"role": "system", "content": system_content},
-                                {"role": "user", "content": user_input}
-                            ]
-                            return messages, True
-                    except Exception as fallback_error:
-                        print(f"[ERROR] POML fallback failed: {fallback_error}")
-                
-                print(f"[ERROR] POML processing error: {e}")
-                return [], False
+                return messages, True
+            
+            elif isinstance(result, str) and result.strip():
+                return [
+                    {"role": "system", "content": result},
+                    {"role": "user", "content": user_input}
+                ], True
+            
+            return [], False
 
         except Exception as e:
-            print(f"[ERROR] POML processing error: {e}")
             return [], False
 
     async def on_ready(self):
@@ -2422,6 +2376,10 @@ Generate ONE short status (under 30 chars):"""
     async def handle_mention(self, message):
         """Handle @ mentions with full optimization"""
         try:
+            import time
+            start_time = time.time()
+            print(f"[TIMING] Message processing started at {start_time}")
+            
             print(f"[MESSAGE] User: {message.author.display_name} ({message.author.id})")
             print(f"[MESSAGE] Channel: #{message.channel.name} ({message.channel.id})")
             print(f"[MESSAGE] Guild: {message.guild.name if message.guild else 'DM'}")
@@ -2469,12 +2427,15 @@ Generate ONE short status (under 30 chars):"""
                             print(f"🖼️ Additional images: {', '.join(image_urls[1:])}")
                             content += f" (and {len(image_attachments)-1} more images)"
 
-                # Try POML first, fallback to basic prompts
+                # Try POML first
+                poml_start = time.time()
                 messages, used_poml = await self.generate_poml_response(
                     content,
                     message.author.display_name,
                     str(message.author.id)
                 )
+                poml_end = time.time()
+                print(f"[TIMING] POML processing duration: {poml_end - poml_start:.2f}s")
 
                 # Add conversation context from modern memory system
                 conversation_context = self.memory.format_context_for_llm(channel_id)
@@ -2499,12 +2460,18 @@ Generate ONE short status (under 30 chars):"""
                 # Apply BPE optimization before sending to Ollama
                 optimized_messages = self.ollama.format_messages_for_bpe(messages)
                 
+                ai_start_time = time.time()
+                print(f"[TIMING] First AI call started at {ai_start_time} (elapsed: {ai_start_time - start_time:.2f}s)")
+                
                 # Get response with tools
                 response = await self.ollama.chat(
                     model=self.current_model,
                     messages=optimized_messages,
                     tools=ALL_TOOLS
                 )
+                
+                ai_end_time = time.time()
+                print(f"[TIMING] First AI call completed at {ai_end_time} (duration: {ai_end_time - ai_start_time:.2f}s)")
 
                 # Extract tool calls and handle them (exact merged bot pattern)
                 tool_calls = []
@@ -2546,12 +2513,8 @@ Generate ONE short status (under 30 chars):"""
                 tool_results = []
                 embeds = []
                 
-                # Debug: Always show tool call status
+                # Tool call status (minimal debug)
                 print(f"[DEBUG] Tool calls detected: {len(tool_calls)}")
-                if tool_calls:
-                    print(f"[DEBUG] Tool calls: {[call.get('name') for call in tool_calls]}")
-                else:
-                    print(f"[DEBUG] No tool calls - AI responded without using tools")
 
                 # Handle tool calls if present (clean pattern from merged bot)
                 if tool_calls:
@@ -2591,6 +2554,10 @@ Generate ONE short status (under 30 chars):"""
                     
                     # Get final response after tool use (like merged bot)
                     optimized_messages = self.ollama.format_messages_for_bpe(messages)
+                    
+                    ai2_start_time = time.time()
+                    print(f"[TIMING] Second AI call started at {ai2_start_time} (elapsed: {ai2_start_time - start_time:.2f}s)")
+                    
                     final_response = await self.ollama.chat(
                         model=self.current_model,
                         messages=optimized_messages,
@@ -2605,6 +2572,9 @@ Generate ONE short status (under 30 chars):"""
                             "num_predict": 512
                         }
                     )
+                    
+                    ai2_end_time = time.time()
+                    print(f"[TIMING] Second AI call completed at {ai2_end_time} (duration: {ai2_end_time - ai2_start_time:.2f}s)")
                     
                     # Extract final response content
                     try:
@@ -2820,6 +2790,9 @@ Generate ONE short status (under 30 chars):"""
                 self.memory.add_bot_response(channel_id, response_text)
 
                 # Send response with paginated embeds if available
+                send_start_time = time.time()
+                print(f"[TIMING] Discord message sending started at {send_start_time} (elapsed: {send_start_time - start_time:.2f}s)")
+                
                 if embeds_to_send:
                     # Send first embed with view, then additional embeds
                     embed, view = embeds_to_send[0]
@@ -2836,9 +2809,17 @@ Generate ONE short status (under 30 chars):"""
                     await message.reply(response_text, embeds=embeds[:10])  # Discord limit
                 else:
                     await message.reply(response_text)
+                
+                send_end_time = time.time()
+                total_time = send_end_time - start_time
+                send_duration = send_end_time - send_start_time
+                print(f"[TIMING] Discord message sending completed at {send_end_time}")
+                print(f"[TIMING] Message send duration: {send_duration:.2f}s")
+                print(f"[TIMING] Total processing time: {total_time:.2f}s")
                     
         except Exception as e:
-            print(f"[ERROR] Error handling mention: {e}")
+            error_time = time.time()
+            print(f"[ERROR] Error handling mention at {error_time} (elapsed: {error_time - start_time:.2f}s): {e}")
             await message.reply("Sorry, I encountered an error processing your message.")
 
     def build_system_prompt(self) -> str:
