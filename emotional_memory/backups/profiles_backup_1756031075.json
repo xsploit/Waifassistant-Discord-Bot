@@ -1,0 +1,56 @@
+{
+  "120418341775998976": {
+    "user_id": "120418341775998976",
+    "username": "X-SPLOIT710",
+    "current_mood": "neutral",
+    "relationship_level": "stranger",
+    "trust_score": 0.5,
+    "familiarity_level": 0.0,
+    "conversation_count": 0,
+    "last_interaction": 1756024984.2418318,
+    "mood_points": 1.2000000000000002,
+    "emotional_stability": 0.8,
+    "personality_traits": {
+      "playfulness": 0.55,
+      "curiosity": 0.75,
+      "empathy": 0.65,
+      "humor": 0.4,
+      "seriousness": 0.3
+    },
+    "memories": [
+      {
+        "content": "WUTS GOOD FAM",
+        "memory_type": "CHAT",
+        "importance_score": 0.5,
+        "emotional_context": "positive",
+        "timestamp": 1756024700.304121,
+        "metadata": {}
+      },
+      {
+        "content": "whats your top 10 animes",
+        "memory_type": "CHAT",
+        "importance_score": 0.3,
+        "emotional_context": "neutral",
+        "timestamp": 1756024949.6984625,
+        "metadata": {}
+      },
+      {
+        "content": ",iomes are naruto,db,intial d, hells paradise thing thats it",
+        "memory_type": "CHAT",
+        "importance_score": 0.3,
+        "emotional_context": "neutral",
+        "timestamp": 1756024984.2418318,
+        "metadata": {}
+      }
+    ],
+    "emotional_history": [
+      {
+        "timestamp": 1756024700.304121,
+        "mood_change": 15.0,
+        "new_mood": "neutral",
+        "mood_points": 1.2000000000000002,
+        "reason": "Message content analysis: positive"
+      }
+    ]
+  }
+}
