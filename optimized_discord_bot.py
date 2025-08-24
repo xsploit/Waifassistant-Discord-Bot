@@ -2103,13 +2103,7 @@ class OptimizedDiscordBot(commands.Bot):
             print(f"[WARNING] Emotional Memory System not available: {e}")
             self.emotional_memory = None
 
-        # Tool Knowledge System (INTEGRATED FROM MERGED_BOT_FIXED.PY)
-        try:
-            self.tool_knowledge = ToolKnowledgeManager("tool_knowledge")
-            print("[OK] Tool Knowledge System initialized")
-        except Exception as e:
-            print(f"[WARNING] Tool Knowledge System not available: {e}")
-            self.tool_knowledge = None
+        
 
         # POML template management with caching
         self.poml_templates = {}
@@ -2157,10 +2151,7 @@ class OptimizedDiscordBot(commands.Bot):
                     self.emotional_memory.load_persistent_state(state['emotional_memory'])
                     print("[PERSISTENT STATE] Loaded emotional memory state")
                 
-                # Load vector tool knowledge state
-                if self.vector_tool_knowledge and 'vector_tool_knowledge' in state:
-                    self.vector_tool_knowledge.load_persistent_state(state['vector_tool_knowledge'])
-                    print("[PERSISTENT STATE] Loaded vector tool knowledge state")
+                #
                 
                 # Load mood points
                 if 'mood_points' in state:
@@ -2188,8 +2179,7 @@ class OptimizedDiscordBot(commands.Bot):
                 state['emotional_memory'] = self.emotional_memory.get_persistent_state()
             
             # Add vector tool knowledge state if available
-            if self.vector_tool_knowledge:
-                state['vector_tool_knowledge'] = self.vector_tool_knowledge.get_persistent_state()
+            
             
             # Save to disk
             with open("bot_persistent_state.json", 'w') as f:
@@ -2503,91 +2493,7 @@ Generate ONE short status (under 30 chars):"""
                 print(f"[WARNING] Status loop error: {e}")
                 await asyncio.sleep(300)  # Wait 5 minutes before retry
 
-    async def generate_poml_response(self, user_input: str, username: str, user_id: str, mood_points: float = None, tone: str = None) -> tuple[List[Dict], bool, bool]:
-        """Generate response using POML templates - OPTIMIZED with caching and tool knowledge"""
-        if not POML_AVAILABLE or 'personality' not in self.poml_templates:
-            return [], False
 
-        try:
-            # Use provided mood data or fall back to default
-            if mood_points is None:
-                mood_points = self.get_user_mood(user_id)
-            if tone is None:
-                tone = self.get_tone_from_mood(mood_points)
-
-            # Retrieve relevant tool knowledge for better AI analysis
-            tool_knowledge_context = ""
-            if self.vector_tool_knowledge:
-                try:
-                    # Search for relevant tool knowledge based on user input
-                    relevant_knowledge = self.vector_tool_knowledge.search_tool_knowledge(
-                        query=user_input,
-                        user_id=user_id,
-                        limit=3  # Get top 3 most relevant pieces
-                    )
-                    
-                    if relevant_knowledge:
-                        tool_knowledge_context = "\n\nRelevant Tool Knowledge:\n"
-                        for i, entry in enumerate(relevant_knowledge, 1):
-                            tool_knowledge_context += f"{i}. {entry.tool_name}: {entry.result_summary[:200]}...\n"
-                        print(f"[TOOL KNOWLEDGE] Found {len(relevant_knowledge)} relevant knowledge entries for: {user_input[:50]}...")
-                    else:
-                        print(f"[TOOL KNOWLEDGE] No relevant knowledge found for: {user_input[:50]}...")
-                        
-                except Exception as e:
-                    print(f"[TOOL KNOWLEDGE ERROR] Failed to retrieve knowledge: {e}")
-
-            # Enhanced context with tool knowledge
-            context = {
-                "user_input": user_input,
-                "username": username,
-                "mood_points": mood_points,
-                "tone": tone,
-                "tool_knowledge": tool_knowledge_context
-            }
-
-            # Check if we have a cached result for this context combination
-            cached_result = self.poml_cache.get_cached_result('personality', context)
-            if cached_result is not None:
-                print(f"[POML CACHE] Cache HIT for personality template with context")
-                result = cached_result
-                used_cache = True
-            else:
-                print(f"[POML CACHE] Cache MISS for personality template with context")
-                
-                # Process template with POML engine
-                template_content = self.poml_templates['personality']
-                result = poml(template_content, context=context, chat=True)
-                
-                # Cache the result for future use with similar context
-                self.poml_cache.cache_result('personality', context, result)
-                used_cache = False
-
-            # Fast result processing
-            if isinstance(result, list):
-                messages = []
-                for msg in result:
-                    if isinstance(msg, dict) and msg.get("content", "").strip():
-                        role_key = msg.get("role") or msg.get("speaker", "system")
-                        role = "system" if role_key.lower() == "system" else "assistant" if role_key.lower() in ["ai", "assistant"] else role_key.lower()
-                        messages.append({"role": role, "content": str(msg["content"])})
-                
-                # Add user message if missing
-                if not any(msg.get('role') == 'user' for msg in messages):
-                    messages.append({"role": "user", "content": user_input})
-                
-                return messages, True, used_cache
-            
-            elif isinstance(result, str) and result.strip():
-                return [
-                    {"role": "system", "content": result},
-                    {"role": "user", "content": user_input}
-                ], True, used_cache
-            
-            return [], False, False
-
-        except Exception as e:
-            return [], False
 
     async def on_ready(self):
         print(f'[OK] {self.user} is online and optimized!')
@@ -2768,23 +2674,7 @@ Generate ONE short status (under 30 chars):"""
                         system_prompt += f"\n\nConversation Context:\n{conversation_context}"
                     
                     # Add relevant tool knowledge for better analysis
-                    if self.vector_tool_knowledge:
-                        try:
-                            relevant_knowledge = self.vector_tool_knowledge.search_tool_knowledge(
-                                query=content,
-                                user_id=user_id,
-                                limit=3
-                            )
-                            
-                            if relevant_knowledge:
-                                tool_knowledge_text = "\n\nRelevant Tool Knowledge:\n"
-                                for i, entry in enumerate(relevant_knowledge, 1):
-                                    tool_knowledge_text += f"{i}. {entry.tool_name}: {entry.result_summary[:200]}...\n"
-                                system_prompt += tool_knowledge_text
-                                print(f"[TOOL KNOWLEDGE] Added {len(relevant_knowledge)} knowledge entries to fallback prompt")
-                        except Exception as e:
-                            print(f"[TOOL KNOWLEDGE ERROR] Failed to add to fallback: {e}")
-                    
+                                        
                     messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": content}
@@ -2877,22 +2767,7 @@ Generate ONE short status (under 30 chars):"""
                                 # Store tool result
                                 tool_results.append({'tool': name, 'result': result})
                                 
-                                # Store tool knowledge for future use (NEW!)
-                                if self.vector_tool_knowledge:
-                                    try:
-                                        # Generate a search query based on the tool call and result
-                                        search_query = f"tool:{name} args:{args} result:{str(result)[:200]}"
-                                        entry_id = self.vector_tool_knowledge.add_tool_knowledge(
-                                            user_id=user_id,
-                                            tool_name=name,
-                                            search_query=search_query,
-                                            result_summary=str(result)[:500],
-                                            importance_score=0.7  # Tool usage is moderately important
-                                        )
-                                        print(f"[VECTOR TOOL KNOWLEDGE] Stored knowledge for {name} with ID: {entry_id}")
-                                    except Exception as e:
-                                        print(f"[VECTOR TOOL KNOWLEDGE ERROR] Failed to store tool knowledge: {e}")
-
+                             
                                 
                                 # Add tool response to messages for AI context (like merged bot)
                                 messages.append({'role': 'tool', 'content': json.dumps(result)})
@@ -3230,13 +3105,7 @@ Generate ONE short status (under 30 chars):"""
                     emotional_context = "personal_discovery"
                     emotional_score = 10.0
                 
-                # Check for questions (potential tool knowledge)
-                if "?" in content or any(word in content_lower for word in ["what is", "how to", "where is", "when", "why"]):
-                    memory_type = "TOOL_KNOWLEDGE"
-                    importance_score = 0.6
-                    emotional_context = "curious"
-                    emotional_score = 5.0
-                
+                                
                 # Check for emotional expressions
                 positive_words = ["happy", "excited", "great", "awesome", "love", "like", "good", "nice"]
                 negative_words = ["sad", "angry", "upset", "bad", "hate", "terrible", "awful", "worried"]
@@ -4273,422 +4142,8 @@ class BotCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Failed to get system stats: {str(e)}")
 
-    @commands.command(name='toolsearch')
-    async def search_tool_knowledge(self, ctx, *, query: str):
-        """Search tool knowledge using vector similarity"""
-        if not self.bot.vector_tool_knowledge:
-            await ctx.send("❌ Vector Tool Knowledge System is not available")
-            return
-            
-        try:
-            # Search for relevant tool knowledge
-            results = self.bot.vector_tool_knowledge.search_tool_knowledge(
-                query=query,
-                limit=5,
-                threshold=0.3,
-                user_id=str(ctx.author.id)
-            )
-            
-            if not results:
-                embed = discord.Embed(
-                    title="🔍 Tool Knowledge Search",
-                    description=f"No relevant tool knowledge found for: **{query}**",
-                    color=0x00ff00
-                )
-                await ctx.send(embed=embed)
-                return
-            
-            # Create embed with results
-            embed = discord.Embed(
-                title="🔍 Tool Knowledge Search Results",
-                description=f"Found {len(results)} relevant results for: **{query}**",
-                color=0x00ff00
-            )
-            
-            for i, result in enumerate(results[:5], 1):
-                entry = result['entry']
-                similarity = result['similarity']
-                relevance = result['relevance_score']
-                
-                # Format the result
-                value = (
-                    f"**Tool:** {entry.tool_name}\n"
-                    f"**Query:** {entry.search_query[:100]}{'...' if len(entry.search_query) > 100 else ''}\n"
-                    f"**Result:** {entry.result_summary[:150]}{'...' if len(entry.result_summary) > 150 else ''}\n"
-                    f"**Similarity:** {similarity:.2f} • **Relevance:** {relevance:.2f}"
-                )
-                
-                embed.add_field(
-                    name=f"Result {i}",
-                    value=value,
-                    inline=False
-                )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to search tool knowledge: {str(e)}")
-
-    @commands.command(name='toolstats')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def tool_knowledge_stats(self, ctx):
-        """Show vector tool knowledge system statistics"""
-        if not self.bot.vector_tool_knowledge:
-            await ctx.send("❌ Vector Tool Knowledge System is not available")
-            return
-            
-        try:
-            stats = self.bot.vector_tool_knowledge.get_stats()
-            
-            embed = discord.Embed(
-                title="🔍 Vector Tool Knowledge Stats",
-                color=0x00ff00
-            )
-            
-            embed.add_field(
-                name="Total Entries",
-                value=f"📊 {stats['total_entries']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Unique Tools",
-                value=f"🛠️ {stats['unique_tools']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Unique Users",
-                value=f"👥 {stats['unique_users']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Average Importance",
-                value=f"⭐ {stats['average_importance']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Average Usage Count",
-                value=f"📈 {stats['average_usage_count']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Vector Index",
-                value="✅ Active" if stats['vector_index_active'] else "❌ Inactive",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Embedder",
-                value="✅ Available" if stats['embedder_available'] else "❌ Unavailable",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Storage Directory",
-                value=f"📁 {stats['storage_directory']}",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to get tool knowledge stats: {str(e)}")
-
-
-# =============================================================================
-# TOOL KNOWLEDGE SYSTEM (INTEGRATED FROM MERGED_BOT_FIXED.PY)
-# =============================================================================
-
-class ToolKnowledgeManager:
-    """Manages tool results in a RAG system for knowledge accumulation"""
     
-    def __init__(self, save_dir="tool_knowledge"):
-        self.save_dir = save_dir
-        self.dimension = 384  # Sentence transformer dimension
-        
-        # Create directory
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir, exist_ok=True)
-        
-        # Initialize components
-        try:
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
-            self.index = faiss.IndexFlatL2(self.dimension)
-            print(f"🧠 Tool Knowledge Manager initialized with FAISS index")
-        except Exception as e:
-            print(f"⚠️ Error initializing Tool Knowledge Manager: {e}")
-            self.model = None
-            self.index = None
-        
-        self.knowledge_items = []
-        
-        # Load existing knowledge
-        self.load_knowledge()
-    
-    def load_knowledge(self):
-        """Load existing knowledge from disk"""
-        if not self.index:
-            return
-            
-        index_path = os.path.join(self.save_dir, "tool_knowledge.faiss")
-        items_path = os.path.join(self.save_dir, "knowledge_items.pkl")
-        
-        try:
-            if os.path.exists(index_path) and os.path.exists(items_path):
-                self.index = faiss.read_index(index_path)
-                with open(items_path, "rb") as f:
-                    self.knowledge_items = pickle.load(f)
-                print(f"🧠 Loaded {len(self.knowledge_items)} knowledge items from {self.save_dir}")
-        except Exception as e:
-            print(f"⚠️ Error loading knowledge: {e}")
-            # Reset on error
-            if self.model:
-                self.index = faiss.IndexFlatL2(self.dimension)
-            self.knowledge_items = []
-    
-    def save_knowledge(self):
-        """Save knowledge to disk"""
-        if not self.index:
-            return
-            
-        try:
-            index_path = os.path.join(self.save_dir, "tool_knowledge.faiss")
-            items_path = os.path.join(self.save_dir, "knowledge_items.pkl")
-            
-            faiss.write_index(self.index, index_path)
-            with open(items_path, "wb") as f:
-                pickle.dump(self.knowledge_items, f)
-            print(f"💾 Saved {len(self.knowledge_items)} knowledge items to disk")
-        except Exception as e:
-            print(f"⚠️ Error saving knowledge: {e}")
-    
-    def _get_clean_query_from_args(self, tool_name: str, tool_args: dict) -> str:
-        """Extracts the core query from tool arguments."""
-        if tool_name == 'web_search' or tool_name == 'news_search':
-            return tool_args.get('query', '')
-        if tool_name == 'get_weather':
-            return tool_args.get('city', '')
-        if tool_name == 'get_time':
-            return 'current time'
-        if tool_name == 'web_scrape':
-            return tool_args.get('url', '')
-        if tool_name == 'dox_user':
-            return tool_args.get('user_id', '')
-        # Add other tools as needed
-        return " ".join(str(v) for v in tool_args.values())
-
-    def store_tool_result(self, tool_name: str, tool_args: dict, result: dict, original_user_message: str, ai_response: str = None):
-        """Store a tool result and AI response in the knowledge base."""
-        if not self.model or not self.index:
-            print("⚠️ Tool Knowledge Manager not properly initialized")
-            return
-            
-        try:
-            # Extract meaningful content based on tool type
-            content_text = self._extract_searchable_content(tool_name, tool_args, result)
-            if not content_text:
-                return
-            
-            # Get the clean query to use as the key
-            clean_query = self._get_clean_query_from_args(tool_name, tool_args)
-            if not clean_query:
-                clean_query = original_user_message # Fallback
-
-            knowledge_item = {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "tool_name": tool_name,
-                "tool_args": tool_args,
-                "result": result,
-                "user_query": clean_query,  # Use the clean query here
-                "original_user_message": original_user_message, # Store original message separately
-                "ai_response": ai_response or "",
-                "content_text": content_text,
-                "search_keywords": self._extract_keywords(content_text, clean_query, ai_response or "")
-            }
-            
-            # The embedding should be based on the clean query and the results
-            embedding_text = f"Query: {clean_query}\nResults: {content_text}"
-            embedding = self.model.encode([embedding_text])[0]
-            
-            # Add to index
-            self.index.add(np.array([embedding], dtype=np.float32))
-            self.knowledge_items.append(knowledge_item)
-            
-            # Save immediately to ensure persistence
-            self.save_knowledge()
-                
-            print(f"💾 Stored knowledge for query: '{clean_query}'")
-            
-        except Exception as e:
-            print(f"⚠️ Error storing tool result: {e}")
-    
-    def can_answer_from_knowledge(self, query: str, confidence_threshold: float = 1.2) -> tuple:
-        """Check if we can answer the query from existing knowledge without tools"""
-        if not self.model or not self.index:
-            return False, None
-            
-        try:
-            if len(self.knowledge_items) == 0:
-                print(f"🔍 No knowledge items stored yet")
-                return False, None
-            
-            print(f"🔍 Searching {len(self.knowledge_items)} knowledge items for: '{query}'")
-            
-            # Debug: show what we have stored
-            for i, item in enumerate(self.knowledge_items[:3]):  # Show first 3
-                print(f"  Item {i}: {item['tool_name']} - '{item['user_query'][:50]}...'")
-            
-            # Create query embedding
-            query_embedding = self.model.encode([query])[0]
-            
-            # Search for best match
-            scores, indices = self.index.search(
-                np.array([query_embedding], dtype=np.float32), 
-                min(3, len(self.knowledge_items))
-            )
-            
-            # Debug: show all scores
-            print(f"🔍 FAISS search completed: {len(scores[0])} results, top scores: {scores[0][:3] if len(scores[0]) > 0 else 'none'}")
-            if len(scores[0]) > 0:
-                print(f"📊 Best match similarity: {scores[0][0]:.4f}, threshold: {confidence_threshold}")
-            
-            # Check if we have a high-confidence match
-            if len(scores[0]) > 0 and scores[0][0] < confidence_threshold:
-                best_match = self.knowledge_items[indices[0][0]].copy()
-                best_match['relevance_score'] = float(scores[0][0])
-                
-                # Get some related items too
-                related_items = []
-                for i, score in zip(indices[0][1:], scores[0][1:]):
-                    if score < 1.2:  # Looser threshold for related items
-                        item = self.knowledge_items[i].copy()
-                        item['relevance_score'] = float(score)
-                        related_items.append(item)
-                
-                return True, {
-                    'best_match': best_match,
-                    'related_items': related_items[:2],  # Max 2 related items
-                    'confidence': float(scores[0][0])  # Lower score = higher confidence
-                }
-            
-            return False, None
-            
-        except Exception as e:
-            print(f"⚠️ Error checking knowledge: {e}")
-            return False, None
-    
-    def search_relevant_knowledge(self, query: str, k: int = 3) -> list:
-        """Search for relevant past tool results"""
-        if not self.model or not self.index:
-            return []
-            
-        try:
-            if len(self.knowledge_items) == 0:
-                print(f"🔍 Knowledge search: '{query}' - no stored knowledge items")
-                return []
-            
-            print(f"🔍 Knowledge search: '{query}' searching {len(self.knowledge_items)} items for top {k}")
-            
-            # FIRST: Check for direct query matches (exact key lookup)
-            query_lower = query.lower().strip()
-            direct_matches = []
-            for i, item in enumerate(self.knowledge_items):
-                stored_query = item.get('user_query', '').lower().strip()
-                # Check for exact match or high similarity in queries
-                if query_lower == stored_query or query_lower in stored_query or stored_query in query_lower:
-                    direct_match = item.copy()
-                    direct_match['relevance_score'] = 0.0  # Perfect match
-                    direct_matches.append(direct_match)
-                    print(f"🎯 Direct query match found: '{item['user_query'][:50]}...' (perfect match)")
-            
-            if direct_matches:
-                print(f"✅ Returning {len(direct_matches)} direct query matches")
-                return direct_matches[:k]
-            
-            # FALLBACK: Semantic similarity search if no direct matches
-            print("🔍 No direct query matches, falling back to semantic search")
-            query_embedding = self.model.encode([query])[0]
-            print(f"🧠 Generated query embedding: {len(query_embedding)}D vector")
-            
-            scores, indices = self.index.search(
-                np.array([query_embedding], dtype=np.float32), 
-                min(k, len(self.knowledge_items))
-            )
-            print(f"🔍 FAISS knowledge search: found {len(scores[0])} results with scores: {scores[0][:3] if len(scores[0]) > 0 else 'none'}")
-            
-            # Debug: Show what each FAISS result contains
-            print("📋 DETAILED FAISS SEARCH RESULTS:")
-            for idx, (i, score) in enumerate(zip(indices[0], scores[0])):
-                if idx < 5:  # Show top 5 results
-                    if i < len(self.knowledge_items):
-                        item = self.knowledge_items[i]
-                        print(f"  {idx+1}. Score: {score:.3f} | Tool: {item['tool_name']} | Query: '{item['user_query'][:50]}...'")
-                        print(f"      Content: {item['content_text'][:100]}...")
-                        print(f"      Timestamp: {item['timestamp']}")
-                        print()
-            
-            # Return relevant items
-            relevant_items = []
-            for i, score in zip(indices[0], scores[0]):
-                if score < 1.5:  # Similarity threshold
-                    item = self.knowledge_items[i].copy()
-                    item['relevance_score'] = float(score)
-                    relevant_items.append(item)
-            
-            return relevant_items
-            
-        except Exception as e:
-            print(f"⚠️ Error searching knowledge: {e}")
-            return []
-    
-    def _extract_searchable_content(self, tool_name: str, tool_args: dict, result: dict) -> str:
-        """Extract searchable text from tool results - ONLY for web_search, news_search, web_scrape"""
-        if 'error' in result:
-            return ""
-        
-        # Only store these 3 tool types
-        if tool_name == 'web_search':
-            if 'results' in result:
-                content_parts = []
-                for r in result['results'][:3]:  # Top 3 results
-                    content_parts.append(f"{r.get('title', '')} {r.get('snippet', '')}")
-                return f"Search: {tool_args.get('query', '')} Results: " + " ".join(content_parts)
-        
-        elif tool_name == 'web_scrape':
-            content = result.get('content', '')[:1000]  # First 1000 chars
-            return f"Scraped from {result.get('url', '')}: {content}"
-        
-        elif tool_name == 'news_search':
-            if 'results' in result:
-                content_parts = []
-                for article in result['results'][:3]:
-                    content_parts.append(f"{article.get('title', '')} {article.get('snippet', '')}")
-                return f"News search: {tool_args.get('query', '')} Articles: " + " ".join(content_parts)
-        
-        # Don't store weather, calculations, or anything else
-        return ""
-    
-    def _extract_keywords(self, content: str, user_query: str, ai_response: str = "") -> list:
-        """Extract keywords for better searchability"""
-        # Combine content, query, and AI response
-        text = f"{content} {user_query} {ai_response}".lower()
-        
-        # Extract meaningful words (3+ chars, alphanumeric)
-        words = re.findall(r'\b[a-zA-Z0-9]{3,}\b', text)
-        
-        # Remove common words
-        stop_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'she', 'use', 'your', 'each', 'from', 'have', 'here', 'into', 'like', 'long', 'make', 'many', 'over', 'said', 'some', 'time', 'very', 'what', 'with', 'will'}
-        
-        keywords = [w for w in words if w not in stop_words]
-        
-        # Return unique keywords, most frequent first
-        from collections import Counter
-        return list(dict.fromkeys([word for word, count in Counter(keywords).most_common(20)]))
-    
+       
     def get_stats(self) -> dict:
         """Get statistics about the knowledge base"""
         return {
@@ -4763,16 +4218,7 @@ class OptimizedDiscordBot(commands.Bot):
             print(f"[WARNING] Emotional Memory System not available: {e}")
             self.emotional_memory = None
 
-        # Vector Tool Knowledge System (2025) - NEW!
-        try:
-            from vector_tool_knowledge import VectorToolKnowledge
-            self.vector_tool_knowledge = VectorToolKnowledge("vector_tool_knowledge")
-            print("[OK] Vector Tool Knowledge System initialized")
-        except ImportError as e:
-            print(f"[WARNING] Vector Tool Knowledge System not available: {e}")
-            self.vector_tool_knowledge = None
-
-        # POML template management with caching
+                # POML template management with caching
         self.poml_templates = {}
         self.poml_cache = POMLCache()  # Pre-compiled template cache
         self.mood_points = {}  # Per-user mood tracking
@@ -4818,10 +4264,7 @@ class OptimizedDiscordBot(commands.Bot):
                     self.emotional_memory.load_persistent_state(state['emotional_memory'])
                     print("[PERSISTENT STATE] Loaded emotional memory state")
                 
-                # Load vector tool knowledge state
-                if self.vector_tool_knowledge and 'vector_tool_knowledge' in state:
-                    self.vector_tool_knowledge.load_persistent_state(state['vector_tool_knowledge'])
-                    print("[PERSISTENT STATE] Loaded vector tool knowledge state")
+               
                 
                 # Load mood points
                 if 'mood_points' in state:
@@ -4849,8 +4292,7 @@ class OptimizedDiscordBot(commands.Bot):
                 state['emotional_memory'] = self.emotional_memory.get_persistent_state()
             
             # Add vector tool knowledge state if available
-            if self.vector_tool_knowledge:
-                state['vector_tool_knowledge'] = self.vector_tool_knowledge.get_persistent_state()
+        
             
             # Save to disk
             with open("bot_persistent_state.json", 'w') as f:
@@ -5165,7 +4607,7 @@ Generate ONE short status (under 30 chars):"""
                 await asyncio.sleep(300)  # Wait 5 minutes before retry
 
     async def generate_poml_response(self, user_input: str, username: str, user_id: str, mood_points: float = None, tone: str = None) -> tuple[List[Dict], bool, bool]:
-        """Generate response using POML templates - OPTIMIZED with caching and tool knowledge"""
+        """Generate response using POML templates - OPTIMIZED with caching"""
         if not POML_AVAILABLE or 'personality' not in self.poml_templates:
             return [], False
 
@@ -5176,35 +4618,13 @@ Generate ONE short status (under 30 chars):"""
             if tone is None:
                 tone = self.get_tone_from_mood(mood_points)
 
-            # Retrieve relevant tool knowledge for better AI analysis
-            tool_knowledge_context = ""
-            if self.vector_tool_knowledge:
-                try:
-                    # Search for relevant tool knowledge based on user input
-                    relevant_knowledge = self.vector_tool_knowledge.search_tool_knowledge(
-                        query=user_input,
-                        user_id=user_id,
-                        limit=3  # Get top 3 most relevant pieces
-                    )
-                    
-                    if relevant_knowledge:
-                        tool_knowledge_context = "\n\nRelevant Tool Knowledge:\n"
-                        for i, entry in enumerate(relevant_knowledge, 1):
-                            tool_knowledge_context += f"{i}. {entry.tool_name}: {entry.result_summary[:200]}...\n"
-                        print(f"[TOOL KNOWLEDGE] Found {len(relevant_knowledge)} relevant knowledge entries for: {user_input[:50]}...")
-                    else:
-                        print(f"[TOOL KNOWLEDGE] No relevant knowledge found for: {user_input[:50]}...")
-                        
-                except Exception as e:
-                    print(f"[TOOL KNOWLEDGE ERROR] Failed to retrieve knowledge: {e}")
-
-            # Enhanced context with tool knowledge
+            # Create context for POML processing
             context = {
-                "user_input": user_input,
                 "username": username,
+                "user_id": user_id,
                 "mood_points": mood_points,
                 "tone": tone,
-                "tool_knowledge": tool_knowledge_context
+                "user_input": user_input
             }
 
             # Check if we have a cached result for this context combination
@@ -5428,23 +4848,7 @@ Generate ONE short status (under 30 chars):"""
                     if conversation_context and conversation_context != "No previous conversation context.":
                         system_prompt += f"\n\nConversation Context:\n{conversation_context}"
                     
-                    # Add relevant tool knowledge for better analysis
-                    if self.vector_tool_knowledge:
-                        try:
-                            relevant_knowledge = self.vector_tool_knowledge.search_tool_knowledge(
-                                query=content,
-                                user_id=user_id,
-                                limit=3
-                            )
-                            
-                            if relevant_knowledge:
-                                tool_knowledge_text = "\n\nRelevant Tool Knowledge:\n"
-                                for i, entry in enumerate(relevant_knowledge, 1):
-                                    tool_knowledge_text += f"{i}. {entry.tool_name}: {entry.result_summary[:200]}...\n"
-                                system_prompt += tool_knowledge_text
-                                print(f"[TOOL KNOWLEDGE] Added {len(relevant_knowledge)} knowledge entries to fallback prompt")
-                        except Exception as e:
-                            print(f"[TOOL KNOWLEDGE ERROR] Failed to add to fallback: {e}")
+                    
                     
                     messages = [
                         {"role": "system", "content": system_prompt},
@@ -5538,21 +4942,7 @@ Generate ONE short status (under 30 chars):"""
                                 # Store tool result
                                 tool_results.append({'tool': name, 'result': result})
                                 
-                                # Store tool knowledge for future use (NEW!)
-                                if self.vector_tool_knowledge:
-                                    try:
-                                        # Generate a search query based on the tool call and result
-                                        search_query = f"tool:{name} args:{args} result:{str(result)[:200]}"
-                                        entry_id = self.vector_tool_knowledge.add_tool_knowledge(
-                                            user_id=user_id,
-                                            tool_name=name,
-                                            search_query=search_query,
-                                            result_summary=str(result)[:500],
-                                            importance_score=0.7  # Tool usage is moderately important
-                                        )
-                                        print(f"[VECTOR TOOL KNOWLEDGE] Stored knowledge for {name} with ID: {entry_id}")
-                                    except Exception as e:
-                                        print(f"[VECTOR TOOL KNOWLEDGE ERROR] Failed to store tool knowledge: {e}")
+                                
 
                                 
                                 # Add tool response to messages for AI context (like merged bot)
@@ -5893,7 +5283,7 @@ Generate ONE short status (under 30 chars):"""
                 
                 # Check for questions (potential tool knowledge)
                 if "?" in content or any(word in content_lower for word in ["what is", "how to", "where is", "when", "why"]):
-                    memory_type = "TOOL_KNOWLEDGE"
+                    memory_type = "MEMORY"
                     importance_score = 0.6
                     emotional_context = "curious"
                     emotional_score = 5.0
@@ -6934,132 +6324,7 @@ class BotCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Failed to get system stats: {str(e)}")
 
-    @commands.command(name='toolsearch')
-    async def search_tool_knowledge(self, ctx, *, query: str):
-        """Search tool knowledge using vector similarity"""
-        if not self.bot.vector_tool_knowledge:
-            await ctx.send("❌ Vector Tool Knowledge System is not available")
-            return
-            
-        try:
-            # Search for relevant tool knowledge
-            results = self.bot.vector_tool_knowledge.search_tool_knowledge(
-                query=query,
-                limit=5,
-                threshold=0.3,
-                user_id=str(ctx.author.id)
-            )
-            
-            if not results:
-                embed = discord.Embed(
-                    title="🔍 Tool Knowledge Search",
-                    description=f"No relevant tool knowledge found for: **{query}**",
-                    color=0x00ff00
-                )
-                await ctx.send(embed=embed)
-                return
-            
-            # Create embed with results
-            embed = discord.Embed(
-                title="🔍 Tool Knowledge Search Results",
-                description=f"Found {len(results)} relevant results for: **{query}**",
-                color=0x00ff00
-            )
-            
-            for i, result in enumerate(results[:5], 1):
-                entry = result['entry']
-                similarity = result['similarity']
-                relevance = result['relevance_score']
-                
-                # Format the result
-                value = (
-                    f"**Tool:** {entry.tool_name}\n"
-                    f"**Query:** {entry.search_query[:100]}{'...' if len(entry.search_query) > 100 else ''}\n"
-                    f"**Result:** {entry.result_summary[:150]}{'...' if len(entry.result_summary) > 150 else ''}\n"
-                    f"**Similarity:** {similarity:.2f} • **Relevance:** {relevance:.2f}"
-                )
-                
-                embed.add_field(
-                    name=f"Result {i}",
-                    value=value,
-                    inline=False
-                )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to search tool knowledge: {str(e)}")
-
-    @commands.command(name='toolstats')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def tool_knowledge_stats(self, ctx):
-        """Show vector tool knowledge system statistics"""
-        if not self.bot.vector_tool_knowledge:
-            await ctx.send("❌ Vector Tool Knowledge System is not available")
-            return
-            
-        try:
-            stats = self.bot.vector_tool_knowledge.get_stats()
-            
-            embed = discord.Embed(
-                title="🔍 Vector Tool Knowledge Stats",
-                color=0x00ff00
-            )
-            
-            embed.add_field(
-                name="Total Entries",
-                value=f"📊 {stats['total_entries']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Unique Tools",
-                value=f"🛠️ {stats['unique_tools']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Unique Users",
-                value=f"👥 {stats['unique_users']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Average Importance",
-                value=f"⭐ {stats['average_importance']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Average Usage Count",
-                value=f"📈 {stats['average_usage_count']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Vector Index",
-                value="✅ Active" if stats['vector_index_active'] else "❌ Inactive",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Embedder",
-                value="✅ Available" if stats['embedder_available'] else "❌ Unavailable",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Storage Directory",
-                value=f"📁 {stats['storage_directory']}",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to get tool knowledge stats: {str(e)}")
-
-
+    
 # =============================================================================
 # MAIN EXECUTION
 # =============================================================================
