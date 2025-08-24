@@ -19,6 +19,17 @@ import time
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
+from conversation_memory import ConversationMemoryManager
+
+# Try to import AI Intent Classifier (optional dependency)
+try:
+    from ai_intent_classifier import AIIntentClassifier
+    AI_CLASSIFIER_AVAILABLE = True
+    print("[OK] AI Intent Classifier import successful")
+except ImportError as e:
+    AI_CLASSIFIER_AVAILABLE = False
+    print(f"[WARNING] AI Intent Classifier not available: {e}")
+    print("[INFO] Bot will use fallback mood system until torch/transformers are installed")
 
 # Load environment variables from .env file
 try:
@@ -1054,14 +1065,17 @@ Respond in valid JSON format:
             ollama_client = AsyncClient()
 
         try:
+            # Prepare messages for vision analysis  
+            vision_messages = [{
+                'role': 'user',
+                'content': analysis_prompt,
+                'images': [image_data]
+            }]
+            
             # Use official Ollama chat API for vision analysis (like examples/multimodal-chat.py)
             response = await ollama_client.chat(
                 model=vision_model,
-                messages=[{
-                    'role': 'user',
-                    'content': analysis_prompt,
-                    'images': [image_data]
-                }],
+                messages=vision_messages,
                 options={
                     "temperature": 0.1,
                     "top_p": 0.9,
@@ -1207,14 +1221,17 @@ Respond in valid JSON format:
         ollama_client = AsyncClient()
 
         try:
+            # Prepare messages for avatar analysis
+            avatar_messages = [{
+                'role': 'user',
+                'content': analysis_prompt,
+                'images': [image_data]
+            }]
+            
             # Use official Ollama chat API for vision analysis (like examples/multimodal-chat.py)
             response = await ollama_client.chat(
                 model=vision_model,
-                messages=[{
-                    'role': 'user',
-                    'content': analysis_prompt,
-                    'images': [image_data]
-                }],
+                messages=avatar_messages,
                 options={
                     "temperature": 0.1,
                     "top_p": 0.9,
@@ -1953,12 +1970,32 @@ class OptimizedDiscordBot(commands.Bot):
         self.ollama = OptimizedOllamaClient()
         self.current_model = 'hf.co/subsectmusic/qwriko3-4b-instruct-2507:Q4_K_M'
         self.vision_model = 'granite3.2-vision:2b'  # Vision analysis model
-        self.conversation_history = {}  # Per-channel history
+        
+        # Modern conversation memory management (2025)
+        self.memory = ConversationMemoryManager(
+            window_size=8,              # Keep 8 recent user messages
+            summary_threshold=25,       # Summarize after 25 messages
+            max_context_tokens=3000,    # Token limit for context
+            bot_user_id=None            # Will be set in on_ready()
+        )
+        print("[OK] Modern Conversation Memory Manager initialized")
 
         # POML template management
         self.poml_templates = {}
         self.mood_points = {}  # Per-user mood tracking
         self.load_poml_templates()
+        
+        # AI Intent Classification
+        if AI_CLASSIFIER_AVAILABLE:
+            try:
+                self.intent_classifier = AIIntentClassifier()
+                print("[OK] AI Intent Classifier initialized")
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize AI Intent Classifier: {e}")
+                self.intent_classifier = None
+        else:
+            self.intent_classifier = None
+            print("[INFO] AI Intent Classifier disabled - using fallback mood system")
         
         print("[INIT] Optimized Discord Bot initialized")
         print(f"[CONFIG] KV Cache: {os.environ.get('OLLAMA_KV_CACHE_TYPE')}")
@@ -2042,28 +2079,79 @@ class OptimizedDiscordBot(commands.Bot):
             except Exception as e:
                 print(f"[ERROR] Error loading POML template {name}: {e}")
 
-    def get_user_mood(self, user_id: str) -> int:
+    def get_user_mood(self, user_id: str) -> float:
         """Get user's current mood points (-10 to 10)"""
-        return self.mood_points.get(user_id, 0)
+        return self.mood_points.get(user_id, 0.0)
 
-    def adjust_user_mood(self, user_id: str, user_input: str) -> int:
-        """Adjust user mood based on input and return new mood"""
+    def adjust_user_mood(self, user_id: str, user_input: str) -> float:
+        """Adjust user mood based on AI intent classification and input"""
         current_mood = self.get_user_mood(user_id)
-
-        # Simple mood adjustment logic
-        positive_words = ['thanks', 'thank you', 'awesome', 'great', 'love', 'amazing']
-        negative_words = ['stupid', 'dumb', 'hate', 'annoying', 'bad', 'terrible']
-
-        input_lower = user_input.lower()
-
         old_mood = current_mood
+        mood_change = 0
         
-        if any(word in input_lower for word in positive_words):
-            current_mood = min(10, current_mood + 1)
-            print(f"[MOOD] User {user_id}: {old_mood} -> {current_mood} (positive: {user_input[:50]})")
-        elif any(word in input_lower for word in negative_words):
-            current_mood = max(-10, current_mood - 1)
-            print(f"[MOOD] User {user_id}: {old_mood} -> {current_mood} (negative: {user_input[:50]})")
+        # Use AI intent classification if available
+        if self.intent_classifier:
+            try:
+                classification = self.intent_classifier.classify_message(user_input)
+                
+                # Base mood adjustment on vibe and intent
+                vibe_adjustments = {
+                    'positive': 0.8,
+                    'playful': 0.6, 
+                    'flirty': 0.7,
+                    'neutral': 0.0,
+                    'negative': -0.8,
+                    'angry': -1.2,
+                    'sarcastic': -0.3,
+                    'serious': 0.1
+                }
+                
+                # Intent-based modifiers
+                intent_modifiers = {
+                    'compliment': 1.5,  # Multiplier for compliments
+                    'complaint': -1.3,  # Multiplier for complaints
+                    'request': 0.2,     # Small positive for polite requests
+                    'question': 0.1,    # Neutral to slightly positive
+                    'casual conversation': 0.0,  # No modifier
+                    'emotional expression': 1.2  # Amplify emotional content
+                }
+                
+                # Emotional intensity scaling
+                intensity_scaling = {
+                    'high': 1.4,
+                    'medium': 1.0,
+                    'low': 0.7
+                }
+                
+                # Calculate mood change
+                base_change = vibe_adjustments.get(classification.vibe, 0.0)
+                intent_mult = intent_modifiers.get(classification.intent, 1.0)
+                intensity_mult = intensity_scaling.get(classification.emotional_intensity, 1.0)
+                
+                mood_change = base_change * intent_mult * intensity_mult
+                
+                # Cap changes to reasonable ranges
+                mood_change = max(-2.0, min(2.0, mood_change))
+                
+                current_mood = max(-10, min(10, current_mood + mood_change))
+                
+                print(f"[MOOD AI] User {user_id}: {old_mood:.1f} -> {current_mood:.1f}")
+                print(f"         Vibe: {classification.vibe}, Intent: {classification.intent}")
+                print(f"         Intensity: {classification.emotional_intensity}, Change: {mood_change:.2f}")
+                
+            except Exception as e:
+                print(f"[MOOD] AI classification failed, using fallback: {e}")
+                # Fallback to hardcoded system
+                current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
+        else:
+            # Fallback to hardcoded system
+            current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
+        
+        # Natural mood decay over time - slowly drift toward neutral
+        if current_mood > 0:
+            current_mood = max(0, current_mood - 0.1)
+        elif current_mood < 0:
+            current_mood = min(0, current_mood + 0.1)
 
         self.mood_points[user_id] = current_mood
         
@@ -2072,16 +2160,65 @@ class OptimizedDiscordBot(commands.Bot):
             asyncio.create_task(self.update_dynamic_status())
         
         return current_mood
+    
+    def _fallback_mood_adjustment(self, user_id: str, user_input: str, current_mood: float) -> float:
+        """Fallback hardcoded mood adjustment when AI fails"""
+        # Enhanced mood adjustment logic with decimal precision
+        # Very positive words - bigger mood boost
+        very_positive = ['love', 'amazing', 'perfect', 'beautiful', 'incredible', 'wonderful']
+        # Regular positive words - standard boost  
+        positive_words = ['thanks', 'thank you', 'awesome', 'great', 'nice', 'good', 'cool', 'sweet']
+        # Mild positive - small boost
+        mild_positive = ['ok', 'fine', 'sure', 'alright', 'yeah']
+        
+        # Very negative words - bigger mood drop  
+        very_negative = ['hate', 'terrible', 'awful', 'disgusting', 'worst']
+        # Regular negative words - standard drop
+        negative_words = ['stupid', 'dumb', 'annoying', 'bad', 'sucks', 'boring']
+        # Mild negative - small drop  
+        mild_negative = ['meh', 'whatever', 'eh', 'nah']
 
-    def get_tone_from_mood(self, mood_points: int) -> str:
+        input_lower = user_input.lower()
+        old_mood = current_mood
+        mood_change = 0
+        
+        # Simple hardcoded word detection
+        if any(word in input_lower for word in very_positive):
+            mood_change = 1.5
+            current_mood = min(10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very positive: {user_input[:50]})")
+        elif any(word in input_lower for word in positive_words):
+            mood_change = 0.8
+            current_mood = min(10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (positive: {user_input[:50]})")
+        elif any(word in input_lower for word in mild_positive):
+            mood_change = 0.3
+            current_mood = min(10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild positive: {user_input[:50]})")
+        elif any(word in input_lower for word in very_negative):
+            mood_change = -1.5
+            current_mood = max(-10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very negative: {user_input[:50]})")
+        elif any(word in input_lower for word in negative_words):
+            mood_change = -0.8
+            current_mood = max(-10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (negative: {user_input[:50]})")
+        elif any(word in input_lower for word in mild_negative):
+            mood_change = -0.3
+            current_mood = max(-10, current_mood + mood_change)
+            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild negative: {user_input[:50]})")
+            
+        return current_mood
+
+    def get_tone_from_mood(self, mood_points: float) -> str:
         """Convert mood points to tsundere tone"""
-        if mood_points >= 9: return "dere-hot"
-        elif mood_points >= 6: return "cheerful"
-        elif mood_points >= 3: return "soft-tsun"
-        elif mood_points >= 0: return "classic-tsun"
-        elif mood_points >= -3: return "grumpy-tsun"
-        elif mood_points >= -6: return "cold-tsun"
-        else: return "explosive-tsun"
+        if mood_points >= 8: return "dere-hot"      # Very flirty, openly sweet
+        elif mood_points >= 5: return "cheerful"    # Flirty and warm
+        elif mood_points >= 2: return "soft-dere"   # Chill and slightly flirty
+        elif mood_points >= -1: return "neutral"    # Chill but sassy (default)
+        elif mood_points >= -4: return "classic-tsun"  # More tsundere, flustered denials
+        elif mood_points >= -7: return "grumpy-tsun"   # Sassy and snappy
+        else: return "explosive-tsun"                   # Very mad/tsundere
 
     async def generate_status_with_ollama(self, mood_points: int, tone: str) -> str:
         """Generate creative status message using Ollama"""
@@ -2099,10 +2236,11 @@ Status should reflect her personality - tsundere, playful, occasionally sassy. E
 Generate ONE short status (under 30 chars):"""
 
             messages = [{"role": "user", "content": prompt}]
+            optimized_messages = self.ollama.format_messages_for_bpe(messages)
             
             response = await self.ollama.chat(
                 model=self.current_model,
-                messages=messages
+                messages=optimized_messages
             )
             
             status = response['message']['content'].strip()
@@ -2251,6 +2389,11 @@ Generate ONE short status (under 30 chars):"""
 
     async def on_ready(self):
         print(f'[OK] {self.user} is online and optimized!')
+        
+        # Update memory manager with bot user ID
+        self.memory.bot_user_id = str(self.user.id)
+        print(f"[MEMORY] Bot user ID set: {self.user.id}")
+        
         if POML_AVAILABLE:
             print(f"[INFO] POML templates loaded: {list(self.poml_templates.keys())}")
         
@@ -2285,17 +2428,27 @@ Generate ONE short status (under 30 chars):"""
             print(f"[MESSAGE] Content: {message.content}")
             
             async with message.channel.typing():
-                # Get channel history
+                # Add user message to modern memory system
                 channel_id = str(message.channel.id)
-                if channel_id not in self.conversation_history:
-                    self.conversation_history[channel_id] = []
+                user_id = str(message.author.id)
                 
-                history = self.conversation_history[channel_id]
+                # Store the raw user message first
+                raw_content = message.content
                 
                 # Clean the message (remove @ mention)
                 content = message.content
                 content = re.sub(f'<@!?{self.user.id}>', '', content).strip()
                 print(f"[MESSAGE] Cleaned content: {content}")
+                
+                # Add user message to memory system
+                self.memory.add_message(
+                    channel_id=channel_id,
+                    content=raw_content,
+                    author_id=user_id,
+                    author_name=message.author.display_name,
+                    message_id=str(message.id),
+                    is_bot=False
+                )
 
                 # Check for image attachments and modify content (like merged bot)
                 if message.attachments:
@@ -2323,23 +2476,33 @@ Generate ONE short status (under 30 chars):"""
                     str(message.author.id)
                 )
 
+                # Add conversation context from modern memory system
+                conversation_context = self.memory.format_context_for_llm(channel_id)
+                
                 if not used_poml:
-                    # Fallback to basic system prompt
+                    # Fallback to basic system prompt with conversation context
                     system_prompt = self.build_system_prompt()
-                    messages = [{"role": "system", "content": system_prompt}]
+                    if conversation_context and conversation_context != "No previous conversation context.":
+                        system_prompt += f"\n\nConversation Context:\n{conversation_context}"
+                    
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content}
+                    ]
+                else:
+                    # For POML responses, add conversation context to the last message
+                    if conversation_context and conversation_context != "No previous conversation context.":
+                        # Enhance the user message with context
+                        context_enhanced_content = f"Context: {conversation_context}\n\nCurrent message: {content}"
+                        messages[-1]["content"] = context_enhanced_content
 
-                    # Add recent history (last 5 turns)
-                    for turn in history[-5:]:
-                        messages.append({"role": "user", "content": turn['user']})
-                        messages.append({"role": "assistant", "content": turn['assistant']})
-
-                    # Add current message
-                    messages.append({"role": "user", "content": content})
-
+                # Apply BPE optimization before sending to Ollama
+                optimized_messages = self.ollama.format_messages_for_bpe(messages)
+                
                 # Get response with tools
                 response = await self.ollama.chat(
                     model=self.current_model,
-                    messages=messages,
+                    messages=optimized_messages,
                     tools=ALL_TOOLS
                 )
 
@@ -2427,9 +2590,10 @@ Generate ONE short status (under 30 chars):"""
                             messages.append({'role': 'tool', 'content': json.dumps(error_result)})
                     
                     # Get final response after tool use (like merged bot)
+                    optimized_messages = self.ollama.format_messages_for_bpe(messages)
                     final_response = await self.ollama.chat(
                         model=self.current_model,
-                        messages=messages,
+                        messages=optimized_messages,
                         options={
                             "temperature": 0.6,
                             "top_p": 0.95,
@@ -2638,20 +2802,22 @@ Generate ONE short status (under 30 chars):"""
                         # Not JSON, use response as-is
                         pass
 
-                # Anti-repetition check
-                response_text = self.apply_anti_repetition(response_text, history)
-
-                # Store in history
-                history.append({
-                    'user': content,
-                    'assistant': response_text,
-                    'timestamp': time.time()
-                })
-
-                # Keep history manageable
-                if len(history) > 20:
-                    history = history[-15:]
-                    self.conversation_history[channel_id] = history
+                # Modern anti-repetition check using memory system
+                if self.memory.check_repetition(channel_id, response_text):
+                    print(f"[ANTI-REP] Repetitive response detected, regenerating...")
+                    response_text += f" *adjusts response* {' ✨' if '✨' not in response_text else ' 💫'}"
+                
+                # Store bot response in memory system
+                self.memory.add_message(
+                    channel_id=channel_id,
+                    content=response_text,
+                    author_id=str(self.user.id),
+                    author_name=self.user.display_name,
+                    is_bot=True
+                )
+                
+                # Track response for anti-repetition
+                self.memory.add_bot_response(channel_id, response_text)
 
                 # Send response with paginated embeds if available
                 if embeds_to_send:
@@ -3224,7 +3390,28 @@ class BotCommands(commands.Cog):
         embed = discord.Embed(title="🎭 Hikari Commands", description="Available commands:", color=0x9966cc)
         embed.add_field(name="General", value="`!ping` - Test\n`!bothelp` - This help", inline=False)
         embed.add_field(name="Model", value="`!model` - Show models\n`!status` - Bot status", inline=False)
-        embed.add_field(name="Other", value="`!clear` - Clear history", inline=False)
+        embed.add_field(name="Other", value="`!clear` - Clear history\n`!memory` - Memory stats", inline=False)
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='memory')
+    async def memory_stats(self, ctx):
+        """Show conversation memory statistics"""
+        channel_id = str(ctx.channel.id)
+        stats = self.bot.memory.get_memory_stats(channel_id)
+        context = self.bot.memory.get_conversation_context(channel_id)
+        
+        embed = discord.Embed(title="🧠 Conversation Memory Stats", color=0x9966cc)
+        embed.add_field(name="Total Messages", value=f"{stats['total_messages']}", inline=True)
+        embed.add_field(name="User Messages", value=f"{stats['user_messages']}", inline=True) 
+        embed.add_field(name="Bot Messages", value=f"{stats['bot_messages']}", inline=True)
+        embed.add_field(name="Context Window", value=f"{stats['recent_context_messages']}/8 messages", inline=True)
+        embed.add_field(name="Has Summary", value="✅" if stats['has_summary'] else "❌", inline=True)
+        embed.add_field(name="Context Tokens", value=f"~{stats['estimated_context_tokens']}", inline=True)
+        embed.add_field(name="Memory Efficiency", value=f"{stats['memory_efficiency']:.1%}", inline=True)
+        
+        if context.summary:
+            embed.add_field(name="Summary", value=context.summary[:100] + "..." if len(context.summary) > 100 else context.summary, inline=False)
+            
         await ctx.send(embed=embed)
 
     @commands.command()
@@ -3267,15 +3454,43 @@ class BotCommands(commands.Cog):
         embed = discord.Embed(title="🤖 Bot Status", color=0x0099ff)
         embed.add_field(name="Current Model", value=f"`{self.bot.current_model}`", inline=False)
         embed.add_field(name="Vision Model", value=f"`{self.bot.vision_model}`", inline=False)
+        
+        # AI Intent Classification status
+        if self.bot.intent_classifier:
+            embed.add_field(name="AI Intent Classification", value="✅ Enabled (GPU/CPU)", inline=False)
+            
+            # Check if torch is available to show GPU status
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_name = torch.cuda.get_device_name(0)
+                    embed.add_field(name="GPU Status", value=f"✅ CUDA: {gpu_name}", inline=False)
+                else:
+                    embed.add_field(name="GPU Status", value="❌ CPU Only", inline=False)
+            except ImportError:
+                pass
+        else:
+            embed.add_field(name="AI Intent Classification", value="❌ Disabled (fallback mode)", inline=False)
+            
         await ctx.send(embed=embed)
 
     @commands.command(name='clear')
     async def clear_history(self, ctx):
-        """Clear conversation history"""
+        """Clear conversation history using modern memory system"""
         channel_id = str(ctx.channel.id)
-        if channel_id in self.bot.conversation_history:
-            del self.bot.conversation_history[channel_id]
-        await ctx.send("🧹 History cleared!")
+        
+        # Get stats before clearing
+        stats = self.bot.memory.get_memory_stats(channel_id)
+        
+        # Clear memory
+        self.bot.memory.clear_channel_history(channel_id)
+        
+        embed = discord.Embed(title="🧹 Memory Cleared", color=0x00ff00)
+        embed.add_field(name="Cleared", value=f"{stats['total_messages']} messages", inline=True)
+        embed.add_field(name="User Messages", value=f"{stats['user_messages']}", inline=True)
+        embed.add_field(name="Bot Messages", value=f"{stats['bot_messages']}", inline=True)
+        
+        await ctx.send(embed=embed)
 
     @commands.command(name='mood')
     async def check_mood(self, ctx, user: discord.Member = None):
