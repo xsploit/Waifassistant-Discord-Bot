@@ -21,6 +21,8 @@ class IntentClassification:
     context_clues: List[str]
     emotional_indicators: List[str]
     raw_scores: Dict[str, float]
+    message_type: str  # NEW: MEMORY, PERSONAL, TOOL_KNOWLEDGE, CHAT, EMOTIONAL
+    importance_score: float  # NEW: 0.0 to 1.0 importance for emotional memory
 
 class AIIntentClassifier:
     """
@@ -151,8 +153,53 @@ class AIIntentClassifier:
                 if score > 0.25
             ][:3]
             
+            # NEW: Classify message type for emotional memory system
+            message_type_labels = [
+                "personal information", "tool knowledge question", "emotional expression", 
+                "casual chat", "memory worth storing"
+            ]
+            
+            message_type_result = self.classifier(
+                message,
+                candidate_labels=message_type_labels,
+                hypothesis_template="This message contains {}."
+            )
+            
+            # Map AI classification to emotional memory message types
+            type_mapping = {
+                "personal information": "PERSONAL",
+                "tool knowledge question": "TOOL_KNOWLEDGE", 
+                "emotional expression": "EMOTIONAL",
+                "casual chat": "CHAT",
+                "memory worth storing": "MEMORY"
+            }
+            
+            top_message_type = message_type_result['labels'][0]
+            message_type = type_mapping.get(top_message_type, "CHAT")
+            message_type_confidence = message_type_result['scores'][0]
+            
+            # Calculate importance score based on message type and confidence
+            base_importance = {
+                "PERSONAL": 0.7,
+                "TOOL_KNOWLEDGE": 0.6,
+                "EMOTIONAL": 0.8,
+                "CHAT": 0.3,
+                "MEMORY": 0.9
+            }
+            
+            importance_score = base_importance.get(message_type, 0.3) * message_type_confidence
+            
+            # Boost importance for high emotional intensity
+            if emotional_intensity == "high":
+                importance_score = min(1.0, importance_score * 1.3)
+            elif emotional_intensity == "low":
+                importance_score = max(0.1, importance_score * 0.8)
+            
+            # Ensure importance is within bounds
+            importance_score = max(0.1, min(1.0, importance_score))
+            
             # Combine confidence scores
-            overall_confidence = (intent_confidence + vibe_confidence) / 2
+            overall_confidence = (intent_confidence + vibe_confidence + message_type_confidence) / 3
             
             # Create raw scores dictionary
             raw_scores = {
@@ -168,7 +215,9 @@ class AIIntentClassifier:
                 emotional_intensity=emotional_intensity,
                 context_clues=context_clues,
                 emotional_indicators=emotional_indicators,
-                raw_scores=raw_scores
+                raw_scores=raw_scores,
+                message_type=message_type,
+                importance_score=importance_score
             )
             
         except Exception as e:
@@ -185,7 +234,9 @@ class AIIntentClassifier:
             emotional_intensity="medium",
             context_clues=["fallback_mode"],
             emotional_indicators=["neutral"],
-            raw_scores={}
+            raw_scores={},
+            message_type="CHAT",
+            importance_score=0.3
         )
     
     def get_classification_explanation(self, message: str) -> str:
@@ -204,6 +255,7 @@ Vibe: {classification.vibe}
 Emotional Intensity: {classification.emotional_intensity}
 Context Clues: {', '.join(classification.context_clues)}
 Emotional Indicators: {', '.join(classification.emotional_indicators)}
+Message Type: {classification.message_type} (importance: {classification.importance_score:.2f})
 
 Detailed Scores:
 Intent Scores: {classification.raw_scores.get('intent_scores', {})}

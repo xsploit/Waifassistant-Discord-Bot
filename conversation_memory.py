@@ -281,6 +281,60 @@ class ConversationMemoryManager:
         ]
         
         print(f"[MEMORY] Cleaned {len(messages) - len(self.conversations[channel_id])} old messages from {channel_id}")
+    
+    def get_persistent_state(self) -> Dict[str, Any]:
+        """Get persistent state for saving to disk"""
+        return {
+            'conversations': {
+                channel_id: [
+                    {
+                        'content': msg.content,
+                        'author_id': msg.author_id,
+                        'author_name': msg.author_name,
+                        'message_id': msg.message_id,
+                        'is_bot': msg.is_bot,
+                        'timestamp': msg.timestamp
+                    }
+                    for msg in messages
+                ]
+                for channel_id, messages in self.conversations.items()
+            },
+            'summaries': self.summaries,
+            'recent_responses': self.recent_responses,
+            'last_cleanup': self.last_cleanup
+        }
+    
+    def load_persistent_state(self, state: Dict[str, Any]) -> None:
+        """Load persistent state from disk"""
+        try:
+            if 'conversations' in state:
+                for channel_id, msg_data in state['conversations'].items():
+                    messages = []
+                    for msg_dict in msg_data:
+                        msg = ConversationMessage(
+                            content=msg_dict['content'],
+                            author_id=msg_dict['author_id'],
+                            author_name=msg_dict['author_name'],
+                            message_id=msg_dict['message_id'],
+                            is_bot=msg_dict['is_bot'],
+                            timestamp=msg_dict['timestamp']
+                        )
+                        messages.append(msg)
+                    self.conversations[channel_id] = messages
+            
+            if 'summaries' in state:
+                self.summaries = state['summaries']
+            
+            if 'recent_responses' in state:
+                self.recent_responses = state['recent_responses']
+            
+            if 'last_cleanup' in state:
+                self.last_cleanup = state['last_cleanup']
+                
+            print(f"[MEMORY] Loaded persistent state: {len(self.conversations)} channels, {sum(len(msgs) for msgs in self.conversations.values())} messages")
+            
+        except Exception as e:
+            print(f"[MEMORY ERROR] Failed to load persistent state: {e}")
 
 # Example usage and testing
 if __name__ == "__main__":

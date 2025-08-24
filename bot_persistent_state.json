@@ -1,0 +1,117 @@
+{
+  "conversation_memory": {
+    "conversations": {
+      "1326833326605996093": [
+        {
+          "content": "hola",
+          "author_id": "120418341775998976",
+          "author_name": "X-SPLOIT710",
+          "message_id": "1409238427492421682",
+          "is_bot": false,
+          "timestamp": 1756059021.6024947
+        },
+        {
+          "content": "H-Hola? Tch, so you're greeting me now, huh. Don't think I'm going to let you get away with it just because your voice is too quiet for my standards. :|",
+          "author_id": "1066054608142737460",
+          "author_name": "Hikari-Chan",
+          "message_id": null,
+          "is_bot": true,
+          "timestamp": 1756059027.7965944
+        },
+        {
+          "content": "you wanna go",
+          "author_id": "120418341775998976",
+          "author_name": "X-SPLOIT710",
+          "message_id": "1409238571176693874",
+          "is_bot": false,
+          "timestamp": 1756059055.8485672
+        },
+        {
+          "content": "W-WHAT?! I-I'm not going anywhere with you! It's not like I even know where you live or what you're talking about - I mean, you can't just assume I'll come with you! Do you even have a map or something?! :(",
+          "author_id": "1066054608142737460",
+          "author_name": "Hikari-Chan",
+          "message_id": null,
+          "is_bot": true,
+          "timestamp": 1756059058.6059525
+        }
+      ]
+    },
+    "summaries": {},
+    "recent_responses": {
+      "1326833326605996093": [
+        "H-Hola? Tch, so you're greeting me now, huh. Don't think I'm going to let you get away with it just because your voice is too quiet for my standards. :|",
+        "W-WHAT?! I-I'm not going anywhere with you! It's not like I even know where you live or what you're talking about - I mean, you can't just assume I'll come with you! Do you even have a map or something?! :("
+      ]
+    },
+    "last_cleanup": {
+      "1326833326605996093": 1756059021.6024947
+    }
+  },
+  "mood_points": {
+    "120418341775998976": 1.1600000000000001
+  },
+  "timestamp": 1756059237.5806909,
+  "emotional_memory": {
+    "user_profiles": {
+      "120418341775998976": {
+        "user_id": "120418341775998976",
+        "username": "X-SPLOIT710",
+        "current_mood": "neutral",
+        "relationship_level": "stranger",
+        "trust_score": 0.5,
+        "familiarity_level": 0.0,
+        "conversation_count": 0,
+        "last_interaction": 1756059056.570865,
+        "mood_points": 1.6,
+        "emotional_stability": 0.8,
+        "personality_traits": {
+          "playfulness": 0.5,
+          "curiosity": 0.75,
+          "empathy": 0.6,
+          "humor": 0.4,
+          "seriousness": 0.3
+        },
+        "memories": [
+          {
+            "content": "hola",
+            "memory_type": "EMOTIONAL",
+            "importance_score": 0.3384141445159912,
+            "emotional_context": "ai_classified_compliment",
+            "timestamp": 1756059024.8496368,
+            "metadata": {}
+          },
+          {
+            "content": "you wanna go",
+            "memory_type": "MEMORY",
+            "importance_score": 0.25194101929664614,
+            "emotional_context": "ai_classified_request",
+            "timestamp": 1756059056.570865,
+            "metadata": {}
+          }
+        ],
+        "emotional_history": [
+          {
+            "timestamp": 1756059024.850637,
+            "mood_change": 10.0,
+            "new_mood": "neutral",
+            "mood_points": 0.8,
+            "reason": "Message content analysis: ai_classified_compliment"
+          },
+          {
+            "timestamp": 1756059056.570865,
+            "mood_change": 10.0,
+            "new_mood": "neutral",
+            "mood_points": 1.6,
+            "reason": "Message content analysis: ai_classified_request"
+          }
+        ]
+      }
+    },
+    "last_save": 1756058988.6504505
+  },
+  "vector_tool_knowledge": {
+    "storage_directory": "vector_tool_knowledge",
+    "total_entries": 0,
+    "last_save": 1756059237.5806909
+  }
+}
