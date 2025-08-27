@@ -1,10 +1,3 @@
-# Environment variables and secrets
-.env
-.env.local
-.env.production
-.env.staging
-*.env
-
 # Python
 __pycache__/
 *.py[cod]
@@ -23,99 +16,57 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
 # Virtual environments
-.env
-.venv
-env/
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
+.venv/
 
-# IDEs and editors
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Logs
+# Project specific
 *.log
-logs/
+*.json
+*.zip
+*.tar.gz
 
-# Discord bot specific
-bot_data/
-user_data/
-guild_data/
-temp/
-cache/
+# Old files we're not using
+simple_sleep_time_chat.py
+sleep_time_computer.py
+waifu_bot_backup_*.zip
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
+# Test files
+test_*.py
+*_test.py
 
-# Configuration files with sensitive data
-config.json
-config.yaml
-config.yml
-secrets.json
+# Memory files
+sleep_agent_memory.json
+bot_persistent_state.json
 
-# Backup files
-*_backup.py
-*_backup.*
-backup_*
-*.backup
-optimized_discord_bot_backup.py
-emotional_memory/backups/
+# Emotional memory
+emotional_memory/
+test_emotional_memory/
 
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Temporary files
-*.tmp
-*.temp
-.claude/settings.local.json
-
-# Experiments and testing
+# Experiments
 Experiments/
+
+# POML templates (keep these)
+# templates/
+
+# Backup files
+*_backup_*.poml
+*_backup_*.json

@@ -91,6 +91,33 @@ class POMLCache:
                 mood_group = "very_positive"
             context_parts.append(f"mood:{mood_group}")
         
+        # Include memory context for better personalization
+        if 'user_memory' in context:
+            memory = context['user_memory']
+            # Include memory block count (grouped for cache efficiency)
+            block_count = memory.get('block_count', 0)
+            if block_count == 0:
+                memory_group = "no_memory"
+            elif block_count <= 5:
+                memory_group = "low_memory"
+            elif block_count <= 15:
+                memory_group = "medium_memory"
+            else:
+                memory_group = "high_memory"
+            context_parts.append(f"memory:{memory_group}")
+            
+            # Include last activity (grouped by time ranges)
+            last_activity = memory.get('last_activity', 0)
+            if last_activity == 0:
+                activity_group = "new_user"
+            elif time.time() - last_activity < 3600:  # 1 hour
+                activity_group = "recent"
+            elif time.time() - last_activity < 86400:  # 1 day
+                activity_group = "daily"
+            else:
+                activity_group = "older"
+            context_parts.append(f"activity:{activity_group}")
+        
         # Don't include tone in cache key - it changes too frequently and reduces cache hits
         # The mood grouping above should capture most personality variations
         
@@ -2115,7 +2142,35 @@ class OptimizedDiscordBot(commands.Bot):
             print(f"[WARNING] Emotional Memory System not available: {e}")
             self.emotional_memory = None
 
-        
+        # Sleep Time Agent System (2025) - NEW!
+        try:
+            from sleep_time_agent_core import SleepTimeAgentCore, AgentConfig
+            self.sleep_agent = SleepTimeAgentCore(
+                AgentConfig(
+                    trigger_after_messages=5,           # Process after 5 messages
+                    trigger_after_idle_minutes=5,      # Process after 5 minutes idle
+                    thinking_iterations=1,              # One-pass thinking
+                    model="qwen3:4b",                  # Thinking model
+                    enable_faiss=True,                  # Enable FAISS vector memory
+                    vector_dimension=384,               # Vector dimension
+                    max_vectors_per_user=1000,         # Max vectors per user
+                    similarity_threshold=0.7,           # Similarity threshold
+                    stream_thinking=True,               # Stream thinking process
+                    enable_tool_calling=True,           # Enable tool calling
+                    enable_insights=True,               # Enable insights
+                    enable_schema_tools=True            # Enable schema tools
+                )
+            )
+            print("[OK] Sleep Time Agent System initialized")
+            
+            # Sleep agent background task
+            self.sleep_agent_task = None
+            self.user_conversation_history = {}  # Track conversations per user
+            self.user_last_activity = {}         # Track last activity per user
+            
+        except ImportError as e:
+            print(f"[WARNING] Sleep Time Agent System not available: {e}")
+            self.sleep_agent = None
 
         # POML template management with caching
         self.poml_templates = {}
@@ -2170,6 +2225,16 @@ class OptimizedDiscordBot(commands.Bot):
                     self.mood_points = state['mood_points']
                     print(f"[PERSISTENT STATE] Loaded mood points for {len(self.mood_points)} users")
                 
+                # Load sleep agent state if available
+                if self.sleep_agent and 'sleep_agent' in state:
+                    sleep_state = state['sleep_agent']
+                    if 'user_conversation_history' in sleep_state:
+                        self.user_conversation_history = sleep_state['user_conversation_history']
+                        print(f"[PERSISTENT STATE] Loaded sleep agent conversation history for {len(self.user_conversation_history)} users")
+                    if 'user_last_activity' in sleep_state:
+                        self.user_last_activity = sleep_state['user_last_activity']
+                        print(f"[PERSISTENT STATE] Loaded sleep agent activity tracking for {len(self.user_last_activity)} users")
+                
                 print("[PERSISTENT STATE] Successfully loaded bot state from disk")
             else:
                 print("[PERSISTENT STATE] No existing state file found, starting fresh")
@@ -2190,6 +2255,13 @@ class OptimizedDiscordBot(commands.Bot):
             if self.emotional_memory:
                 state['emotional_memory'] = self.emotional_memory.get_persistent_state()
             
+            # Add sleep agent state if available
+            if self.sleep_agent:
+                state['sleep_agent'] = {
+                    'user_conversation_history': self.user_conversation_history,
+                    'user_last_activity': self.user_last_activity
+                }
+            
             # Add vector tool knowledge state if available
             
             
@@ -2201,6 +2273,105 @@ class OptimizedDiscordBot(commands.Bot):
             
         except Exception as e:
             print(f"[PERSISTENT STATE ERROR] Failed to save state: {e}")
+    
+    # =============================================================================
+    # SLEEP AGENT INTEGRATION METHODS
+    # =============================================================================
+    
+    def _add_message_to_history(self, user_id: str, message: discord.Message):
+        """Add a message to user's conversation history"""
+        if not self.sleep_agent:
+            return
+            
+        if user_id not in self.user_conversation_history:
+            self.user_conversation_history[user_id] = []
+            
+        # Add message to history
+        self.user_conversation_history[user_id].append({
+            'role': 'user' if message.author.id != self.user.id else 'assistant',
+            'content': message.content,
+            'timestamp': time.time()
+        })
+        
+        # Keep only last 20 messages per user
+        if len(self.user_conversation_history[user_id]) > 20:
+            self.user_conversation_history[user_id] = self.user_conversation_history[user_id][-20:]
+        
+        # Update last activity
+        self.user_last_activity[user_id] = time.time()
+    
+    async def _start_sleep_agent_background_task(self):
+        """Start the sleep agent background processing task"""
+        if not self.sleep_agent:
+            return
+            
+        if self.sleep_agent_task and not self.sleep_agent_task.done():
+            return
+            
+        self.sleep_agent_task = asyncio.create_task(self._sleep_agent_background_loop())
+        print("[SLEEP AGENT] Background task started")
+    
+    async def _sleep_agent_background_loop(self):
+        """Background loop that checks for idle users every 60 seconds"""
+        if not self.sleep_agent:
+            return
+            
+        print("[SLEEP AGENT] Background loop started - checking every 60 seconds")
+        
+        while True:
+            try:
+                await self._process_idle_users()
+                await asyncio.sleep(60)  # Check every 60 seconds
+            except asyncio.CancelledError:
+                print("[SLEEP AGENT] Background task cancelled")
+                break
+            except Exception as e:
+                print(f"[SLEEP AGENT] Error in background loop: {e}")
+                await asyncio.sleep(60)  # Continue on error
+    
+    async def _process_idle_users(self):
+        """Process users who have been idle for 5+ minutes"""
+        if not self.sleep_agent:
+            return
+            
+        current_time = time.time()
+        idle_threshold = 5 * 60  # 5 minutes in seconds
+        
+        for user_id, last_activity in self.user_last_activity.items():
+            if current_time - last_activity >= idle_threshold:
+                await self._process_user_conversation(user_id)
+    
+    async def _process_user_conversation(self, user_id: str):
+        """Process a user's conversation with the sleep agent"""
+        if not self.sleep_agent or user_id not in self.user_conversation_history:
+            return
+            
+        try:
+            print(f"[SLEEP AGENT] Processing conversation for user {user_id}")
+            
+            # Get user's conversation history
+            messages = self.user_conversation_history[user_id]
+            
+            if len(messages) < 2:  # Need at least 2 messages to process
+                return
+                
+            # Process with sleep agent
+            result = await self.sleep_agent.process_conversation(messages, user_id)
+            
+            if result['status'] == 'success':
+                print(f"[SLEEP AGENT] Successfully processed {result['messages_processed']} messages for user {user_id}")
+                print(f"[SLEEP AGENT] Memory updates: {result['memory_updates']}")
+                
+                # Clear processed messages to prevent reprocessing
+                self.user_conversation_history[user_id] = []
+                
+            elif result['status'] == 'not_triggered':
+                print(f"[SLEEP AGENT] User {user_id} not ready for processing yet")
+            else:
+                print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            print(f"[SLEEP AGENT] Error processing user {user_id}: {e}")
     
     async def setup_hook(self):
         """Setup hook to load commands"""
@@ -2261,7 +2432,8 @@ class OptimizedDiscordBot(commands.Bot):
         template_files = {
             'personality': 'templates/personality.poml',
             'tools': 'templates/tools.poml', 
-            'mood_system': 'templates/mood_system.poml'
+            'mood_system': 'templates/mood_system.poml',
+            'memory_context': 'templates/memory_context.poml'
         }
 
         for name, filepath in template_files.items():
@@ -2520,6 +2692,11 @@ Generate ONE short status (under 30 chars):"""
         # Start dynamic status updates
         self.update_status_task = self.loop.create_task(self.dynamic_status_loop())
         await self.update_dynamic_status()
+        
+        # Start sleep agent background task
+        if self.sleep_agent:
+            await self._start_sleep_agent_background_task()
+            print("[SLEEP AGENT] Background task started in on_ready")
     
     async def on_disconnect(self):
         """Save persistent state when bot disconnects"""
@@ -2545,10 +2722,17 @@ Generate ONE short status (under 30 chars):"""
         
         # Only respond to @ mentions for chat
         if not self.user.mentioned_in(message):
+            # Still track message for sleep agent (even if not responding)
+            if self.sleep_agent:
+                self._add_message_to_history(str(message.author.id), message)
             return
             
         # Process the mention
         await self.handle_mention(message)
+        
+        # Track message for sleep agent after processing
+        if self.sleep_agent:
+            self._add_message_to_history(str(message.author.id), message)
     
     async def handle_mention(self, message):
         """Handle @ mentions with full optimization"""
@@ -3710,6 +3894,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="POML", value="`!poml` - POML status\n`!clearcache` - Clear POML cache", inline=False)
         embed.add_field(name="Emotional Memory", value="`!emotion` - Show emotional profile\n`!memories` - Show memories\n`!emotionstats` - System stats", inline=False)
         embed.add_field(name="Vector Tool Knowledge", value="`!toolsearch` - Search tool knowledge\n`!toolstats` - Tool knowledge stats", inline=False)
+        embed.add_field(name="Sleep Agent", value="`!sleepagent` - Show sleep agent status\n`!sleepagent @user` - User memory details", inline=False)
         await ctx.send(embed=embed)
     
     @commands.command(name='memory')
@@ -3731,6 +3916,47 @@ class BotCommands(commands.Cog):
         if context.summary:
             embed.add_field(name="Summary", value=context.summary[:100] + "..." if len(context.summary) > 100 else context.summary, inline=False)
             
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='sleepagent')
+    async def sleep_agent_status(self, ctx):
+        """Show sleep agent status and memory information"""
+        if not self.bot.sleep_agent:
+            embed = discord.Embed(title="😴 Sleep Agent Status", description="❌ Sleep Agent not available", color=0xff6666)
+            await ctx.send(embed=embed)
+            return
+        
+        # Get sleep agent status
+        system_status = self.bot.sleep_agent.get_system_status()
+        
+        embed = discord.Embed(title="😴 Sleep Agent Status", color=0x9966cc)
+        embed.add_field(name="Status", value="✅ Active", inline=True)
+        embed.add_field(name="Total Users", value=f"{system_status['total_users']}", inline=True)
+        embed.add_field(name="Total Memory Blocks", value=f"{system_status['total_memory_blocks']}", inline=True)
+        embed.add_field(name="Active Users", value=f"{system_status['active_users']}", inline=True)
+        
+        # Add configuration info
+        config = system_status['config']
+        embed.add_field(name="Trigger Messages", value=f"{config['trigger_after_messages']}", inline=True)
+        embed.add_field(name="Trigger Idle Time", value=f"{config['trigger_after_idle_minutes']} minutes", inline=True)
+        embed.add_field(name="Thinking Iterations", value=f"{config['thinking_iterations']}", inline=True)
+        embed.add_field(name="FAISS Enabled", value="✅" if config['enable_faiss'] else "❌", inline=True)
+        
+        # Add user-specific info if mentioned
+        if ctx.message.mentions:
+            user_id = str(ctx.message.mentions[0].id)
+            user_summary = self.bot.sleep_agent.get_user_memory_summary(user_id)
+            
+            embed.add_field(name=f"User {ctx.message.mentions[0].display_name}", value="", inline=False)
+            embed.add_field(name="Memory Blocks", value=f"{user_summary['block_count']}", inline=True)
+            embed.add_field(name="Last Activity", value=f"<t:{int(user_summary['last_activity'])}:R>", inline=True)
+            embed.add_field(name="Message Count", value=f"{user_summary['message_count']}", inline=True)
+            
+            if 'faiss_memory' in user_summary:
+                faiss_stats = user_summary['faiss_memory']
+                embed.add_field(name="FAISS Vectors", value=f"{faiss_stats['total_vectors']}", inline=True)
+                embed.add_field(name="FAISS Type", value=f"{faiss_stats['index_type']}", inline=True)
+        
         await ctx.send(embed=embed)
     
     @commands.command()
@@ -4374,7 +4600,8 @@ class OptimizedDiscordBot(commands.Bot):
         template_files = {
             'personality': 'templates/personality.poml',
             'tools': 'templates/tools.poml', 
-            'mood_system': 'templates/mood_system.poml'
+            'mood_system': 'templates/mood_system.poml',
+            'memory_context': 'templates/memory_context.poml'
         }
 
         for name, filepath in template_files.items():
@@ -4621,7 +4848,7 @@ Generate ONE short status (under 30 chars):"""
     async def generate_poml_response(self, user_input: str, username: str, user_id: str, mood_points: float = None, tone: str = None) -> tuple[List[Dict], bool, bool]:
         """Generate response using POML templates - OPTIMIZED with caching"""
         if not POML_AVAILABLE or 'personality' not in self.poml_templates:
-            return [], False
+            return [], False, False
 
         try:
             # Use provided mood data or fall back to default
@@ -4638,6 +4865,61 @@ Generate ONE short status (under 30 chars):"""
                 "tone": tone,
                 "user_input": user_input
             }
+            
+            # Add memory context from sleep agent if available
+            if hasattr(self, 'sleep_agent') and self.sleep_agent:
+                try:
+                    memory_summary = self.sleep_agent.get_user_memory_summary(user_id)
+                    if memory_summary and "blocks" in memory_summary:
+                        # Add memory blocks to context for POML processing
+                        block_count = memory_summary.get("block_count", 0)
+                        last_activity = memory_summary.get("last_activity", 0)
+                        
+                        # Calculate memory group based on block count
+                        if block_count == 0:
+                            memory_group = "no_memory"
+                        elif block_count <= 5:
+                            memory_group = "low_memory"
+                        elif block_count <= 15:
+                            memory_group = "medium_memory"
+                        else:
+                            memory_group = "high_memory"
+                        
+                        # Calculate activity group based on last activity
+                        if last_activity == 0:
+                            activity_group = "new_user"
+                        elif time.time() - last_activity < 3600:  # 1 hour
+                            activity_group = "recent"
+                        elif time.time() - last_activity < 86400:  # 1 day
+                            activity_group = "daily"
+                        else:
+                            activity_group = "older"
+                        
+                        context["user_memory"] = {
+                            "block_count": block_count,
+                            "last_activity": last_activity,
+                            "message_count": memory_summary.get("message_count", 0),
+                            "memory_blocks": memory_summary.get("blocks", {}),
+                            "faiss_memory": memory_summary.get("faiss_memory", {}),
+                            "memory_group": memory_group,
+                            "activity_group": activity_group
+                        }
+                        
+                        # Add specific memory context for common blocks
+                        blocks = memory_summary.get("blocks", {})
+                        if "user_preferences" in blocks:
+                            context["user_preferences"] = blocks["user_preferences"].get("value_preview", "")
+                        if "behavioral_patterns" in blocks:
+                            context["behavioral_patterns"] = blocks["behavioral_patterns"].get("value_preview", "")
+                        if "conversation_context" in blocks:
+                            context["conversation_context"] = blocks["conversation_context"].get("value_preview", "")
+                        if "persona" in blocks:
+                            context["persona"] = blocks["persona"].get("value_preview", "")
+                            
+                        print(f"[POML MEMORY] Added memory context for user {user_id}: {memory_summary.get('block_count', 0)} blocks")
+                except Exception as e:
+                    print(f"[POML MEMORY] Error getting memory context: {e}")
+                    # Continue without memory context if there's an error
 
             # Check if we have a cached result for this context combination
             cached_result = self.poml_cache.get_cached_result('personality', context)
@@ -4650,11 +4932,35 @@ Generate ONE short status (under 30 chars):"""
                 
                 # Process template with POML engine
                 template_content = self.poml_templates['personality']
-                result = poml(template_content, context=context, chat=True)
+                
+                # If memory context template is available, enhance the context
+                if 'memory_context' in self.poml_templates and 'user_memory' in context:
+                    try:
+                        print(f"[POML MEMORY] Processing memory context template with user_memory: {context['user_memory']}")
+                        # Process memory context template first to get guidance
+                        memory_context = poml(self.poml_templates['memory_context'], context=context, chat=True)
+                        print(f"[POML MEMORY] Memory context result: {memory_context[:200] if isinstance(memory_context, str) else 'Not a string'}")
+                        if isinstance(memory_context, str) and memory_context.strip():
+                            # Add memory guidance to the personality context
+                            enhanced_context = context.copy()
+                            enhanced_context['memory_guidance'] = memory_context
+                            print(f"[POML MEMORY] Processing personality template with enhanced context")
+                            result = poml(template_content, context=enhanced_context, chat=True)
+                        else:
+                            print(f"[POML MEMORY] Processing personality template with basic context")
+                            result = poml(template_content, context=context, chat=True)
+                    except Exception as e:
+                        print(f"[POML MEMORY] Error processing memory context: {e}")
+                        result = poml(template_content, context=context, chat=True)
+                else:
+                    print(f"[POML MEMORY] No memory context available, processing personality template directly")
+                    result = poml(template_content, context=context, chat=True)
                 
                 # Cache the result for future use with similar context
                 self.poml_cache.cache_result('personality', context, result)
                 used_cache = False
+
+
 
             # Fast result processing
             if isinstance(result, list):
@@ -4680,7 +4986,7 @@ Generate ONE short status (under 30 chars):"""
             return [], False, False
 
         except Exception as e:
-            return [], False
+            return [], False, False
 
     async def on_ready(self):
         print(f'[OK] {self.user} is online and optimized!')
