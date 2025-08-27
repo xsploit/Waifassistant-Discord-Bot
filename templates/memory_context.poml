@@ -68,10 +68,10 @@
         let them flow naturally into the conversation based on relevance.
         
         Available memory context:
-        - User preferences: {{user_preferences or "Not yet learned"}}
-        - Behavioral patterns: {{behavioral_patterns or "Not yet observed"}}
-        - Conversation context: {{conversation_context or "No previous context"}}
-        - Personal details: {{persona or "Not yet shared"}}
+        - User preferences: {{user_preferences || "Not yet learned"}}
+        - Behavioral patterns: {{behavioral_patterns || "Not yet observed"}}
+        - Conversation context: {{conversation_context || "No previous context"}}
+        - Personal details: {{persona || "Not yet shared"}}
         
         Remember: Be natural, not creepy. Reference shared experiences warmly and appropriately.
     </system-msg>
@@ -80,7 +80,7 @@
         When responding to {{username}}, consider:
         1. Their memory level: {{memory_guidance[user_memory.memory_group].style}}
         2. Their activity pattern: {{activity_guidance[user_memory.activity_group].style}}
-        3. Relevant memories: {{user_preferences or "None yet"}}
+        3. Relevant memories: {{user_preferences || "None yet"}}
         4. Natural integration: Use memories to enhance, not dominate the conversation
     </paragraph>
 </poml>

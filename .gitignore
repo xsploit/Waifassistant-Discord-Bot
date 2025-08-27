@@ -44,6 +44,11 @@ Thumbs.db
 *.zip
 *.tar.gz
 
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # Old files we're not using
 simple_sleep_time_chat.py
 sleep_time_computer.py

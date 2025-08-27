@@ -4456,7 +4456,37 @@ class OptimizedDiscordBot(commands.Bot):
             print(f"[WARNING] Emotional Memory System not available: {e}")
             self.emotional_memory = None
 
-                # POML template management with caching
+        # Sleep Time Agent System (2025) - NEW!
+        try:
+            from sleep_time_agent_core import SleepTimeAgentCore, AgentConfig
+            self.sleep_agent = SleepTimeAgentCore(
+                AgentConfig(
+                    trigger_after_messages=5,           # Process after 5 messages
+                    trigger_after_idle_minutes=5,      # Process after 5 minutes idle
+                    thinking_iterations=1,              # One-pass thinking
+                    model="qwen3:4b",                  # Thinking model
+                    enable_faiss=True,                  # Enable FAISS vector memory
+                    vector_dimension=384,               # Vector dimension
+                    max_vectors_per_user=1000,         # Max vectors per user
+                    similarity_threshold=0.7,           # Similarity threshold
+                    stream_thinking=True,               # Stream thinking process
+                    enable_tool_calling=True,           # Enable tool calling
+                    enable_insights=True,               # Enable insights
+                    enable_schema_tools=True            # Enable schema tools
+                )
+            )
+            print("[OK] Sleep Time Agent System initialized")
+            
+            # Sleep agent background task
+            self.sleep_agent_task = None
+            self.user_conversation_history = {}  # Track conversations per user
+            self.user_last_activity = {}         # Track last activity per user
+            
+        except ImportError as e:
+            print(f"[WARNING] Sleep Time Agent System not available: {e}")
+            self.sleep_agent = None
+
+        # POML template management with caching
         self.poml_templates = {}
         self.poml_cache = POMLCache()  # Pre-compiled template cache
         self.mood_points = {}  # Per-user mood tracking
@@ -4905,21 +4935,27 @@ Generate ONE short status (under 30 chars):"""
                             "activity_group": activity_group
                         }
                         
-                        # Add specific memory context for common blocks
+                        # Add specific memory context for common blocks (always define these variables)
                         blocks = memory_summary.get("blocks", {})
-                        if "user_preferences" in blocks:
-                            context["user_preferences"] = blocks["user_preferences"].get("value_preview", "")
-                        if "behavioral_patterns" in blocks:
-                            context["behavioral_patterns"] = blocks["behavioral_patterns"].get("value_preview", "")
-                        if "conversation_context" in blocks:
-                            context["conversation_context"] = blocks["conversation_context"].get("value_preview", "")
-                        if "persona" in blocks:
-                            context["persona"] = blocks["persona"].get("value_preview", "")
+                        context["user_preferences"] = blocks.get("user_preferences", {}).get("value_preview", "")
+                        context["behavioral_patterns"] = blocks.get("behavioral_patterns", {}).get("value_preview", "")
+                        context["conversation_context"] = blocks.get("conversation_context", {}).get("value_preview", "")
+                        context["persona"] = blocks.get("persona", {}).get("value_preview", "")
                             
                         print(f"[POML MEMORY] Added memory context for user {user_id}: {memory_summary.get('block_count', 0)} blocks")
                 except Exception as e:
                     print(f"[POML MEMORY] Error getting memory context: {e}")
                     # Continue without memory context if there's an error
+
+            # Ensure memory context variables are always defined (POML requirement)
+            if "user_preferences" not in context:
+                context["user_preferences"] = ""
+            if "behavioral_patterns" not in context:
+                context["behavioral_patterns"] = ""
+            if "conversation_context" not in context:
+                context["conversation_context"] = ""
+            if "persona" not in context:
+                context["persona"] = ""
 
             # Check if we have a cached result for this context combination
             cached_result = self.poml_cache.get_cached_result('personality', context)
@@ -5001,6 +5037,179 @@ Generate ONE short status (under 30 chars):"""
         # Start dynamic status updates
         self.update_status_task = self.loop.create_task(self.dynamic_status_loop())
         await self.update_dynamic_status()
+        
+        # Start sleep agent background task
+        if hasattr(self, 'sleep_agent') and self.sleep_agent:
+            await self._start_sleep_agent_background_task()
+            print("[SLEEP AGENT] Background task started in on_ready")
+    
+    def _add_message_to_history(self, user_id: str, message: discord.Message):
+        """Add a message to user's conversation history"""
+        if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+            return
+            
+        if not hasattr(self, 'user_conversation_history'):
+            self.user_conversation_history = {}
+        if not hasattr(self, 'user_last_activity'):
+            self.user_last_activity = {}
+            
+        if user_id not in self.user_conversation_history:
+            self.user_conversation_history[user_id] = []
+            
+        # Add message to history
+        self.user_conversation_history[user_id].append({
+            'role': 'user' if message.author.id != self.user.id else 'assistant',
+            'content': message.content,
+            'timestamp': time.time()
+        })
+        
+        # Keep only last 20 messages per user
+        if len(self.user_conversation_history[user_id]) > 20:
+            self.user_conversation_history[user_id] = self.user_conversation_history[user_id][-20:]
+        
+        # Update last activity
+        self.user_last_activity[user_id] = time.time()
+        
+        # Check if we should trigger processing immediately (5+ messages)
+        if len(self.user_conversation_history[user_id]) >= 5:
+            print(f"[SLEEP AGENT] User {user_id} has {len(self.user_conversation_history[user_id])} messages - triggering processing")
+            # Create background task to process this user (non-blocking)
+            task = asyncio.create_task(self._process_user_conversation_safe(user_id))
+            # Don't await - let it run in background without blocking
+    
+    async def _start_sleep_agent_background_task(self):
+        """Start the sleep agent background processing task"""
+        if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+            return
+            
+        if hasattr(self, 'sleep_agent_task') and self.sleep_agent_task and not self.sleep_agent_task.done():
+            return
+            
+        self.sleep_agent_task = asyncio.create_task(self._sleep_agent_background_loop())
+        print("[SLEEP AGENT] Background task started")
+    
+    async def _sleep_agent_background_loop(self):
+        """Background loop that checks for idle users every 60 seconds"""
+        if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+            return
+            
+        print("[SLEEP AGENT] Background loop started - checking every 60 seconds")
+        
+        while True:
+            try:
+                await self._process_idle_users()
+                await asyncio.sleep(60)  # Check every 60 seconds
+            except asyncio.CancelledError:
+                print("[SLEEP AGENT] Background task cancelled")
+                break
+            except Exception as e:
+                print(f"[SLEEP AGENT] Error in background loop: {e}")
+                await asyncio.sleep(60)  # Continue on error
+    
+    async def _process_idle_users(self):
+        """Process users who have been idle for 5+ minutes"""
+        if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+            return
+            
+        if not hasattr(self, 'user_last_activity'):
+            return
+            
+        current_time = time.time()
+        idle_threshold = 5 * 60  # 5 minutes in seconds
+        
+        for user_id, last_activity in self.user_last_activity.items():
+            if current_time - last_activity >= idle_threshold:
+                print(f"[SLEEP AGENT] User {user_id} idle for {(current_time - last_activity)/60:.1f} minutes - triggering processing")
+                # Create background task (non-blocking)
+                task = asyncio.create_task(self._process_user_conversation_safe(user_id))
+                # Don't await - let it run in background
+    
+    async def _process_user_conversation(self, user_id: str):
+        """Process a user's conversation with the sleep agent"""
+        if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+            return
+        if not hasattr(self, 'user_conversation_history') or user_id not in self.user_conversation_history:
+            return
+            
+        try:
+            print(f"[SLEEP AGENT] Processing conversation for user {user_id}")
+            
+            # Get user's conversation history
+            messages = self.user_conversation_history[user_id]
+            
+            if len(messages) < 2:  # Need at least 2 messages to process
+                print(f"[SLEEP AGENT] User {user_id} has only {len(messages)} messages, need at least 2")
+                return
+                
+            # Process with sleep agent
+            result = await self.sleep_agent.process_conversation(messages, user_id)
+            
+            if result['status'] == 'success':
+                print(f"[SLEEP AGENT] Successfully processed {result['messages_processed']} messages for user {user_id}")
+                print(f"[SLEEP AGENT] Memory updates: {result['memory_updates']}")
+                
+                # Clear processed messages to prevent reprocessing
+                self.user_conversation_history[user_id] = []
+                
+            elif result['status'] == 'not_triggered':
+                print(f"[SLEEP AGENT] User {user_id} not ready for processing yet")
+            else:
+                print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            print(f"[SLEEP AGENT] Error processing user {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _process_user_conversation_safe(self, user_id: str):
+        """Safely process user conversation without blocking Discord"""
+        try:
+            # Run in executor (separate thread) to prevent blocking Discord
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor
+                self._process_user_conversation_sync,
+                user_id
+            )
+        except Exception as e:
+            print(f"[SLEEP AGENT] Safe processing error for user {user_id}: {e}")
+    
+    def _process_user_conversation_sync(self, user_id: str):
+        """Synchronous version for thread execution"""
+        try:
+            if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
+                return
+            
+            if user_id not in self.user_conversation_history:
+                return
+                
+            # Get messages for this user
+            messages = []
+            for msg_data in self.user_conversation_history[user_id]:
+                messages.append({
+                    'role': 'user',
+                    'content': msg_data['content'],
+                    'timestamp': msg_data['timestamp'],
+                    'username': msg_data.get('username', 'Unknown')
+                })
+            
+            print(f"[SLEEP AGENT] Processing conversation for user {user_id}")
+            
+            # Use asyncio.run for the async processing in thread
+            import asyncio
+            result = asyncio.run(self.sleep_agent.process_conversation(messages, user_id))
+            
+            if result.get('success'):
+                print(f"[SLEEP AGENT] Successfully processed {len(messages)} messages for user {user_id}")
+                if 'memory_updates' in result:
+                    print(f"[SLEEP AGENT] Memory updates: {result['memory_updates']}")
+            else:
+                print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            print(f"[SLEEP AGENT] Thread processing error for user {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def on_disconnect(self):
         """Save persistent state when bot disconnects"""
@@ -5026,10 +5235,17 @@ Generate ONE short status (under 30 chars):"""
         
         # Only respond to @ mentions for chat
         if not self.user.mentioned_in(message):
+            # Still track message for sleep agent (even if not responding)
+            if hasattr(self, 'sleep_agent') and self.sleep_agent:
+                self._add_message_to_history(str(message.author.id), message)
             return
             
         # Process the mention
         await self.handle_mention(message)
+        
+        # Track message for sleep agent after processing
+        if hasattr(self, 'sleep_agent') and self.sleep_agent:
+            self._add_message_to_history(str(message.author.id), message)
     
     async def handle_mention(self, message):
         """Handle @ mentions with full optimization"""
