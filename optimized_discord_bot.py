@@ -3248,6 +3248,7 @@ Generate ONE short status (under 30 chars):"""
                                 # Create rich response with mood info  
                                 response_text = f"{actual_message} {emoji}"
                                 print(f"\033[96m[JSON PARSE] Successfully parsed: mood={mood}, emoji={emoji}\033[0m")
+                                print(f"\033[95m[JSON DEBUG] Full JSON: {json_response}\033[0m")
                                 
                                 # CRITICAL: Update stored mood points based on AI's response 
                                 if mood_points_change is not None:
@@ -3280,6 +3281,20 @@ Generate ONE short status (under 30 chars):"""
                                         new_mood = max(-10, min(10, current_mood + adjustment))
                                         self.mood_points[user_id] = new_mood
                                         print(f"\033[93m[MOOD FEEDBACK] AI suggested {ai_mood_value:.2f}, current={current_mood:.2f}, adjustment={adjustment:+.2f} -> {new_mood:.2f}\033[0m")
+                                        
+                                        # Color-coded mood feedback
+                                        if adjustment > 0.5:
+                                            color = "\033[92m"  # Bright green for big positive
+                                        elif adjustment > 0:
+                                            color = "\033[96m"  # Cyan for small positive
+                                        elif adjustment < -0.5:
+                                            color = "\033[91m"  # Red for big negative
+                                        elif adjustment < 0:
+                                            color = "\033[93m"  # Yellow for small negative
+                                        else:
+                                            color = "\033[37m"  # Gray for no change
+                                        
+                                        print(f"{color}[MOOD VISUAL] {'█' * int(abs(adjustment) * 10)} {adjustment:+.2f} mood change\033[0m")
                                         self.save_persistent_state()  # Save mood changes immediately
                                         # SYNC: Update emotional memory when AI changes mood
                                         if hasattr(self, 'emotional_memory') and self.emotional_memory:

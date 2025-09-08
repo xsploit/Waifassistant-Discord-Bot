@@ -203,7 +203,10 @@
         * For positive interactions: suggest current_mood + 0.1 to 1.0
         * For negative interactions: suggest current_mood - 0.1 to 1.0  
         * Your mood_points should be the TARGET mood after this interaction (will be capped to ±1.0 change)
-        * Example: If current is 8.5 and this is positive, suggest 9.0 to 9.5 (not 1.0!)
+        * EXAMPLES:
+          - Current: 9.75, positive interaction → suggest 10.25 to 10.75 (not 9.85!)
+          - Current: 8.5, positive interaction → suggest 9.0 to 9.5
+          - Current: 7.2, negative interaction → suggest 6.2 to 7.1
 
         <!-- ADVANCED STEPWISE INSTRUCTIONS (from Microsoft docs) -->
         <StepwiseInstructions>
