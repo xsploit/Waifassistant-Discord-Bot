@@ -168,7 +168,7 @@ class AIIntentClassifier:
             # Map AI classification to emotional memory message types
             type_mapping = {
                 "personal information": "PERSONAL",
-                "tool knowledge question": "TOOL_KNOWLEDGE", 
+                "Sexual": "SEXUAL_KNOWLEDGE", 
                 "emotional expression": "EMOTIONAL",
                 "casual chat": "CHAT",
                 "memory worth storing": "MEMORY"
@@ -181,7 +181,7 @@ class AIIntentClassifier:
             # Calculate importance score based on message type and confidence
             base_importance = {
                 "PERSONAL": 0.7,
-                "TOOL_KNOWLEDGE": 0.6,
+                "SEXUAL_KNOWLEDGE": 0.6,
                 "EMOTIONAL": 0.8,
                 "CHAT": 0.3,
                 "MEMORY": 0.9
