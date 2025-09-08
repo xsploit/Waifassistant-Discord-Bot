@@ -2118,6 +2118,40 @@ class OptimizedDiscordBot(commands.Bot):
     def get_user_mood(self, user_id: str) -> float:
         """Get user's current mood points (-10 to 10)"""
         return self.mood_points.get(user_id, 0.0)
+    
+    def sync_mood_systems(self, user_id: str) -> None:
+        """Synchronize live mood (-10 to +10) with emotional memory mood system"""
+        if not self.emotional_memory:
+            return
+            
+        try:
+            # Get current live mood (-10 to +10)
+            live_mood = self.get_user_mood(user_id)
+            
+            # Get emotional memory profile
+            profile = self.emotional_memory.get_user_profile(user_id)
+            
+            # Convert live mood (-10 to +10) to emotional memory scale (roughly -100 to +100)
+            # This maintains the ratio while allowing emotional memory to accumulate over time
+            target_emotional_mood = live_mood * 10.0  # -100 to +100 scale
+            
+            # Calculate difference and apply gradual sync (don't overwrite, blend)
+            current_emotional_mood = profile.mood_points
+            mood_difference = target_emotional_mood - current_emotional_mood
+            
+            # Apply 20% of the difference to gradually sync systems
+            sync_adjustment = mood_difference * 0.2
+            
+            if abs(sync_adjustment) > 0.1:  # Only sync if meaningful difference
+                self.emotional_memory.update_user_mood(
+                    user_id=user_id,
+                    mood_change=sync_adjustment,
+                    reason="Mood sync with live conversation system"
+                )
+                print(f"\033[96m[MOOD SYNC] User {user_id}: Live={live_mood:.1f} -> Emotional={current_emotional_mood:.1f} (adj: {sync_adjustment:+.1f})\033[0m")
+                
+        except Exception as e:
+            print(f"[MOOD SYNC ERROR] Failed to sync mood systems for user {user_id}: {e}")
 
     def adjust_user_mood(self, user_id: str, user_input: str) -> Tuple[float, Optional[IntentClassification]]:
         """Adjust user mood based on AI intent classification and input, returns (mood, classification)"""
@@ -2194,6 +2228,9 @@ class OptimizedDiscordBot(commands.Bot):
         # Save mood changes immediately
         if abs(current_mood - old_mood) >= 0.1:  # Save any meaningful change
             self.save_persistent_state()
+            # SYNC: Update emotional memory when live mood changes
+            if hasattr(self, 'emotional_memory') and self.emotional_memory:
+                self.sync_mood_systems(user_id)
         
         # Update status if mood changed significantly
         if abs(current_mood - old_mood) >= 2:
@@ -2399,6 +2436,36 @@ Generate ONE short status (under 30 chars):"""
                 except Exception as e:
                     print(f"[POML MEMORY] Error getting memory context: {e}")
                     # Continue without memory context if there's an error
+            
+            # Add emotional memory context if available
+            if hasattr(self, 'emotional_memory') and self.emotional_memory:
+                try:
+                    profile = self.emotional_memory.get_user_profile(user_id)
+                    
+                    # Add personality traits to context
+                    context["personality_traits"] = profile.personality_traits
+                    context["relationship_level"] = profile.relationship_level
+                    context["trust_score"] = profile.trust_score
+                    context["familiarity_level"] = profile.familiarity_level
+                    context["conversation_count"] = profile.conversation_count
+                    context["emotional_stability"] = profile.emotional_stability
+                    
+                    # Add recent emotional memories (last 5 for context)
+                    recent_memories = profile.memories[-5:] if profile.memories else []
+                    context["recent_emotional_memories"] = [
+                        {
+                            "content": mem.content[:100],  # Truncate for context
+                            "type": mem.memory_type,
+                            "importance": mem.importance_score,
+                            "context": mem.emotional_context
+                        }
+                        for mem in recent_memories
+                    ]
+                    
+                    print(f"\033[95m[POML EMOTIONAL] Added emotional context: {profile.relationship_level}, trust={profile.trust_score:.2f}, memories={len(recent_memories)}\033[0m")
+                    
+                except Exception as e:
+                    print(f"[POML EMOTIONAL] Error processing emotional context: {e}")
 
             # Ensure memory context variables are always defined (POML requirement)
             if "user_preferences" not in context:
@@ -3201,6 +3268,9 @@ Generate ONE short status (under 30 chars):"""
                                         self.mood_points[user_id] = max(-10, min(10, new_mood))
                                         print(f"\033[93m[MOOD FEEDBACK] AI set mood_points to {new_mood} for user {user_id}\033[0m")
                                         self.save_persistent_state()  # Save mood changes immediately
+                                        # SYNC: Update emotional memory when AI changes mood
+                                        if hasattr(self, 'emotional_memory') and self.emotional_memory:
+                                            self.sync_mood_systems(user_id)
                                     except (ValueError, TypeError) as e:
                                         print(f"[MOOD FEEDBACK] Failed to parse mood_points '{mood_points_change}': {e}")
                                         print(f"[MOOD FEEDBACK] Falling back to mood string adjustment")
@@ -3224,6 +3294,9 @@ Generate ONE short status (under 30 chars):"""
                                         self.mood_points[user_id] = new_mood
                                         print(f"\033[93m[MOOD FEEDBACK] AI response mood '{mood}' adjusted user {user_id} mood: {current_mood:.1f} -> {new_mood:.1f} ({adjustment:+.1f})\033[0m")
                                         self.save_persistent_state()  # Save mood changes immediately
+                                        # SYNC: Update emotional memory when AI changes mood
+                                        if hasattr(self, 'emotional_memory') and self.emotional_memory:
+                                            self.sync_mood_systems(user_id)
 
                                 # Mood embed removed - now available as !mood command
                     except (json.JSONDecodeError, Exception) as e:
@@ -3351,6 +3424,9 @@ Generate ONE short status (under 30 chars):"""
                         mood_change=emotional_score,
                         reason=f"Message content analysis: {emotional_context}"
                     )
+                
+                # SYNC: Keep emotional memory mood aligned with live mood
+                self.sync_mood_systems(user_id)
                 
                 # Evolve personality based on interaction quality
                 interaction_quality = 0.5 + (importance_score * 0.5)  # Base 0.5 + memory importance
@@ -3896,7 +3972,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Model", value="`!model` - Show models\n`!status` - Bot status", inline=False)
         embed.add_field(name="Memory", value="`!clear` - Clear history\n`!memory` - Memory stats", inline=False)
         embed.add_field(name="POML", value="`!poml` - POML status\n`!clearcache` - Clear POML cache\n`!purgeall` - 🚨 ADMIN: Complete memory purge", inline=False)
-        embed.add_field(name="Emotional Memory", value="`!emotion` - Show emotional profile\n`!memories` - Show memories\n`!emotionstats` - System stats", inline=False)
+        embed.add_field(name="Mood Systems", value="`!mood` - Live conversation mood\n`!emotion` - Long-term emotional profile\n`!memories` - Show memories\n`!emotionstats` - System stats", inline=False)
         embed.add_field(name="Vector Tool Knowledge", value="`!toolsearch` - Search tool knowledge\n`!toolstats` - Tool knowledge stats", inline=False)
         await ctx.send(embed=embed)
     
@@ -4145,7 +4221,8 @@ class BotCommands(commands.Cog):
         tone = self.bot.get_tone_from_mood(mood_points)
 
         embed = discord.Embed(
-            title=f"🎭 {target_user.display_name}'s Mood",
+            title=f"🎭 {target_user.display_name}'s Live Conversation Mood",
+            description="⚡ Real-time mood tracking (-10 to +10)",
             color=0xff69b4
         )
 
@@ -4507,7 +4584,8 @@ class BotCommands(commands.Cog):
             profile = self.bot.emotional_memory.get_user_profile(user_id)
             
             embed = discord.Embed(
-                title=f"💝 Emotional Profile: {profile.username}",
+                title=f"💝 Emotional Memory Profile: {profile.username}",
+                description="📊 Long-term emotional memory system data",
                 color=0xff69b4
             )
             
