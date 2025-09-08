@@ -3983,6 +3983,246 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
 
 
 # =============================================================================
+# DISCORD UI COMPONENTS  
+# =============================================================================
+
+class ModelSelectView(discord.ui.View):
+    """Enhanced model selection with type switching and pagination"""
+
+    def __init__(self, models, bot, model_type="main", page=1):
+        super().__init__(timeout=120)  # Extended timeout for model switching
+        self.bot = bot
+        self.all_models = models
+        self.model_type = model_type
+        self.page = page
+        self.models_per_page = 20  # Leave room for type selector
+
+        # Model categorization based on common patterns
+        self.model_categories = {
+            "main": self.categorize_main_models(models),
+            "vision": self.categorize_vision_models(models),
+            "analysis": self.categorize_analysis_models(models),
+            "code": self.categorize_code_models(models),
+            "embedding": self.categorize_embedding_models(models)
+        }
+
+        self.current_models = self.model_categories.get(model_type, models)
+        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
+
+        self.setup_view()
+
+    def categorize_main_models(self, models):
+        """Categorize main chat/LLM models"""
+        main_keywords = ['llama', 'qwen', 'mistral', 'gemma', 'phi', 'neural', 'instruct', 'chat', 'subsect']
+        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision']
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
+        embed_keywords = ['embed', 'nomic']
+
+        main_models = []
+        for model in models:
+            model_lower = model.lower()
+            # Exclude specialized models
+            if any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
+                continue
+            # Include main chat models
+            if any(kw in model_lower for kw in main_keywords) or not any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
+                main_models.append(model)
+
+        return main_models or models[:10]  # Fallback to first 10 if no matches
+
+    def categorize_vision_models(self, models):
+        """Categorize vision/multimodal models"""
+        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision', 'minicpm', 'cogvlm']
+        return [m for m in models if any(kw in m.lower() for kw in vision_keywords)]
+
+    def categorize_analysis_models(self, models):
+        """Categorize analysis/reasoning models"""
+        analysis_keywords = ['qwen', 'llama', 'mistral', 'gemma', 'phi', 'reasoning', 'think']
+        vision_keywords = ['vision', 'llava', 'moondream']
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
+
+        analysis_models = []
+        for model in models:
+            model_lower = model.lower()
+            # Include reasoning models but exclude vision/code
+            if any(kw in model_lower for kw in analysis_keywords) and not any(kw in model_lower for kw in vision_keywords + code_keywords):
+                analysis_models.append(model)
+
+        return analysis_models or models[:5]  # Fallback
+
+    def categorize_code_models(self, models):
+        """Categorize code generation models"""
+        code_keywords = ['code', 'coder', 'deepseek', 'starcoder', 'codellama', 'granite-code']
+        return [m for m in models if any(kw in m.lower() for kw in code_keywords)]
+
+    def categorize_embedding_models(self, models):
+        """Categorize embedding models"""
+        embed_keywords = ['embed', 'nomic', 'bge', 'e5']
+        return [m for m in models if any(kw in m.lower() for kw in embed_keywords)]
+
+    def setup_view(self):
+        """Setup the view with model type selector, models dropdown, and navigation"""
+        self.clear_items()
+
+        # Model type selector (first row)
+        type_options = []
+        type_descriptions = {
+            "main": f"Main Chat Models ({len(self.model_categories['main'])})",
+            "vision": f"Vision/Multimodal ({len(self.model_categories['vision'])})",
+            "analysis": f"Analysis/Reasoning ({len(self.model_categories['analysis'])})",
+            "code": f"Code Generation ({len(self.model_categories['code'])})",
+            "embedding": f"Embedding Models ({len(self.model_categories['embedding'])})"
+        }
+
+        for model_type, description in type_descriptions.items():
+            if self.model_categories[model_type]:  # Only show if models exist
+                type_options.append(discord.SelectOption(
+                    label=description,
+                    value=model_type,
+                    default=(model_type == self.model_type)
+                ))
+
+        if type_options:
+            type_select = discord.ui.Select(
+                placeholder="Select model type...",
+                options=type_options,
+                row=0
+            )
+            type_select.callback = self.type_callback
+            self.add_item(type_select)
+
+        # Models dropdown (second row)
+        start_idx = (self.page - 1) * self.models_per_page
+        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
+        page_models = self.current_models[start_idx:end_idx]
+
+        if page_models:
+            model_options = []
+            current_model = getattr(self.bot, 'current_model', '') if self.model_type == "main" else getattr(self.bot, 'vision_model', '')
+
+            for model in page_models:
+                model_options.append(discord.SelectOption(
+                    label=model[:100],  # Discord limit
+                    description="Currently selected" if model == current_model else "Select this model",
+                    value=model,
+                    default=(model == current_model)
+                ))
+
+            model_select = discord.ui.Select(
+                placeholder=f"Choose {self.model_type} model... (Page {self.page}/{self.total_pages})",
+                options=model_options,
+                row=1
+            )
+            model_select.callback = self.model_callback
+            self.add_item(model_select)
+
+        # Navigation buttons (third row)
+        if self.total_pages > 1:
+            prev_button = discord.ui.Button(
+                label="◀ Previous",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page <= 1),
+                row=2
+            )
+            prev_button.callback = self.prev_callback
+            self.add_item(prev_button)
+
+            next_button = discord.ui.Button(
+                label="Next ▶",
+                style=discord.ButtonStyle.secondary,
+                disabled=(self.page >= self.total_pages),
+                row=2
+            )
+            next_button.callback = self.next_callback
+            self.add_item(next_button)
+
+    async def type_callback(self, interaction: discord.Interaction):
+        """Handle model type selection"""
+        selected_type = interaction.data['values'][0]
+
+        # Update model type and reset to page 1
+        self.model_type = selected_type
+        self.current_models = self.model_categories.get(selected_type, self.all_models)
+        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
+        self.page = 1
+
+        # Rebuild view
+        self.setup_view()
+        embed = self.create_embed()
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def model_callback(self, interaction: discord.Interaction):
+        """Handle model selection"""
+        selected_model = interaction.data['values'][0]
+
+        # Update the appropriate model type on the bot
+        if self.model_type == "main":
+            self.bot.current_model = selected_model
+        elif self.model_type == "vision":
+            self.bot.vision_model = selected_model
+
+        embed = discord.Embed(
+            title="✅ Model Updated",
+            description=f"{self.model_type.title()} model changed to: `{selected_model}`",
+            color=0x00ff00
+        )
+
+        await interaction.response.edit_message(embed=embed, view=None)
+        print(f"[CONFIG] {self.model_type.title()} model changed to: {selected_model}")
+
+    async def prev_callback(self, interaction: discord.Interaction):
+        """Handle previous page"""
+        if self.page > 1:
+            self.page -= 1
+            self.setup_view()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_callback(self, interaction: discord.Interaction):
+        """Handle next page"""
+        if self.page < self.total_pages:
+            self.page += 1
+            self.setup_view()
+            embed = self.create_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+
+    def create_embed(self):
+        """Create the model selection embed"""
+        current_model = getattr(self.bot, 'current_model', 'Unknown') if self.model_type == "main" else getattr(self.bot, 'vision_model', 'Unknown')
+
+        start_idx = (self.page - 1) * self.models_per_page
+        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
+
+        embed = discord.Embed(
+            title=f"🤖 Select {self.model_type.title()} Model",
+            description=f"**Current {self.model_type} model:** `{current_model}`\n\n"
+                       f"**Available {self.model_type} models:** {len(self.current_models)}\n"
+                       f"**Showing:** {start_idx + 1}-{end_idx} of {len(self.current_models)}\n\n"
+                       f"1️⃣ Select model type from first dropdown\n"
+                       f"2️⃣ Choose specific model from second dropdown",
+            color=0x00ff00
+        )
+
+        # Add model type descriptions
+        type_descriptions = {
+            "main": "💬 General chat and conversation models",
+            "vision": "👁️ Image analysis and multimodal models",
+            "analysis": "🧠 Reasoning and analytical models",
+            "code": "💻 Code generation and programming models",
+            "embedding": "🔗 Text embedding and similarity models"
+        }
+
+        if self.model_type in type_descriptions:
+            embed.add_field(
+                name=f"{self.model_type.title()} Models",
+                value=type_descriptions[self.model_type],
+                inline=False
+            )
+
+        return embed
+
+# =============================================================================
 # COMMAND COG
 # =============================================================================
 
