@@ -199,14 +199,15 @@
         
         MOOD FEEDBACK SYSTEM:
         * CURRENT USER MOOD: {{current_mood}} (this is what the user's mood is RIGHT NOW)
-        * You must suggest what the mood should be after this conversation!
-        * For positive interactions: suggest current_mood + 0.1 to 1.0
-        * For negative interactions: suggest current_mood - 0.1 to 1.0  
-        * Your mood_points should be the TARGET mood after this interaction (will be capped to ±1.0 change)
+        * Your mood_points should be the ADJUSTMENT AMOUNT to add/subtract!
+        * For positive interactions: return 0.1 to 1.0 (positive number)
+        * For negative interactions: return -0.1 to -1.0 (negative number)
+        * Your mood_points is the CHANGE amount, NOT the final mood!
         * EXAMPLES:
-          - Current: 9.75, positive interaction → suggest 10.25 to 10.75 (not 9.85!)
-          - Current: 8.5, positive interaction → suggest 9.0 to 9.5
-          - Current: 7.2, negative interaction → suggest 6.2 to 7.1
+          - Good positive interaction → "mood_points": 0.8
+          - Small positive interaction → "mood_points": 0.2  
+          - Bad negative interaction → "mood_points": -0.7
+          - Small negative interaction → "mood_points": -0.2
 
         <!-- ADVANCED STEPWISE INSTRUCTIONS (from Microsoft docs) -->
         <StepwiseInstructions>

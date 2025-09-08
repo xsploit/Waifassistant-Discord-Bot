@@ -3266,11 +3266,11 @@ Generate ONE short status (under 30 chars):"""
                                             print(f"[MOOD FEEDBACK] Invalid mood_points type: {type(mood_points_change)}, value: {mood_points_change}")
                                             raise ValueError(f"Invalid mood_points type: {type(mood_points_change)}")
                                         
-                                        # Treat AI mood_points as ADJUSTMENT, not absolute value
+                                        # AI now returns direct adjustment amount (0.8, -0.5, etc.)
                                         current_mood = self.get_user_mood(user_id)
                                         
-                                        # Calculate adjustment based on AI's mood compared to current
-                                        adjustment = ai_mood_value - current_mood
+                                        # Use AI's mood_points directly as adjustment amount
+                                        adjustment = ai_mood_value
                                         
                                         # Cap adjustments to reasonable ranges (0.1 to 1.0 as intended)
                                         if adjustment > 0:
@@ -3280,7 +3280,7 @@ Generate ONE short status (under 30 chars):"""
                                         
                                         new_mood = max(-10, min(10, current_mood + adjustment))
                                         self.mood_points[user_id] = new_mood
-                                        print(f"\033[93m[MOOD FEEDBACK] AI suggested {ai_mood_value:.2f}, current={current_mood:.2f}, adjustment={adjustment:+.2f} -> {new_mood:.2f}\033[0m")
+                                        print(f"\033[93m[MOOD FEEDBACK] AI returned adjustment {ai_mood_value:+.2f}, current={current_mood:.2f} -> {new_mood:.2f}\033[0m")
                                         
                                         # Color-coded mood feedback
                                         if adjustment > 0.5:
