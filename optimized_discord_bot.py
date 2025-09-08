@@ -4172,18 +4172,49 @@ class BotCommands(commands.Cog):
     async def model_select(self, ctx):
         """Select the main LLM model from available Ollama models with dropdown interface"""
         try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get('http://localhost:11434/api/tags') as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        models = [model['name'] for model in data.get('models', [])]
-                    else:
-                        await ctx.send("❌ Failed to connect to Ollama. Make sure it's running.")
-                        return
+            # Try multiple connection methods
+            models = []
+            
+            # Method 1: Use the bot's existing ollama client
+            if hasattr(self.bot, 'ollama'):
+                try:
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get('http://localhost:11434/api/tags', timeout=10.0)
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = [model['name'] for model in data.get('models', [])]
+                            print(f"[MODEL] Found {len(models)} models via httpx")
+                except Exception as e:
+                    print(f"[MODEL] httpx method failed: {e}")
+            
+            # Method 2: Fallback to aiohttp with different URLs
+            if not models:
+                try:
+                    import aiohttp
+                    urls_to_try = [
+                        'http://localhost:11434/api/tags',
+                        'http://127.0.0.1:11434/api/tags',
+                        'http://0.0.0.0:11434/api/tags'
+                    ]
+                    
+                    for url in urls_to_try:
+                        try:
+                            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                                async with session.get(url) as response:
+                                    if response.status == 200:
+                                        data = await response.json()
+                                        models = [model['name'] for model in data.get('models', [])]
+                                        print(f"[MODEL] Found {len(models)} models via aiohttp at {url}")
+                                        break
+                        except Exception as url_error:
+                            print(f"[MODEL] Failed to connect to {url}: {url_error}")
+                            continue
+                except Exception as e:
+                    print(f"[MODEL] aiohttp method failed: {e}")
 
             if not models:
-                await ctx.send("❌ No Ollama models found. Please install some models first.")
+                await ctx.send("❌ No Ollama models found. Please check:\n• Ollama is running\n• Ollama API is accessible on port 11434\n• You have models installed (`ollama list`)")
                 return
 
             # Create dropdown view
@@ -4194,7 +4225,9 @@ class BotCommands(commands.Cog):
 
         except Exception as e:
             print(f"❌ Error in model command: {e}")
-            await ctx.send("❌ Error getting model list. Make sure Ollama is running.")
+            import traceback
+            traceback.print_exc()
+            await ctx.send(f"❌ Error getting model list: {str(e)}\nCheck console for details.")
 
     @commands.command(name='status')
     async def status_command(self, ctx):
