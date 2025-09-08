@@ -4738,18 +4738,17 @@ class BotCommands(commands.Cog):
                         self.bot.sleep_agent.memory_manager.blocks.clear()
                         self.bot.sleep_agent.last_activity.clear()
                         self.bot.sleep_agent.message_counts.clear()
+                        # Clear FAISS memory if available
                         if hasattr(self.bot.sleep_agent, 'faiss_memory') and self.bot.sleep_agent.faiss_memory:
-                            self.bot.sleep_agent.faiss_memory.user_indices.clear()
-                            self.bot.sleep_agent.faiss_memory.user_metadata.clear()
+                            if hasattr(self.bot.sleep_agent.faiss_memory, 'user_vectors'):
+                                self.bot.sleep_agent.faiss_memory.user_vectors.clear()
+                            if hasattr(self.bot.sleep_agent.faiss_memory, 'user_metadata'):
+                                self.bot.sleep_agent.faiss_memory.user_metadata.clear()
                         self.bot.sleep_agent.memory_manager._save_memory()
                         purge_results.append("✅ Sleep Agent Memory: ALL users purged")
                     else:
-                        # Target specific user
+                        # Target specific user using the actual method
                         self.bot.sleep_agent.reset_user_memory(user_id)
-                        if hasattr(self.bot.sleep_agent, 'faiss_memory') and self.bot.sleep_agent.faiss_memory:
-                            self.bot.sleep_agent.faiss_memory.user_indices.pop(user_id, None)
-                            self.bot.sleep_agent.faiss_memory.user_metadata.pop(user_id, None)
-                        self.bot.sleep_agent.memory_manager._save_memory()
                         purge_results.append(f"✅ Sleep Agent Memory: User {user_id} purged")
                 except Exception as e:
                     purge_results.append(f"❌ Sleep Agent Memory: {str(e)}")
@@ -4761,13 +4760,13 @@ class BotCommands(commands.Cog):
                 try:
                     if user_id == "all":
                         # Nuclear: Clear all emotional memory
-                        self.bot.emotional_memory.user_profiles.clear()
+                        self.bot.emotional_memory.storage.user_profiles.clear()
                         self.bot.emotional_memory.save_all_profiles()
                         purge_results.append("✅ Emotional Memory: ALL users purged")
                     else:
                         # Target specific user
-                        if user_id in self.bot.emotional_memory.user_profiles:
-                            del self.bot.emotional_memory.user_profiles[user_id]
+                        if user_id in self.bot.emotional_memory.storage.user_profiles:
+                            del self.bot.emotional_memory.storage.user_profiles[user_id]
                             self.bot.emotional_memory.save_all_profiles()
                             purge_results.append(f"✅ Emotional Memory: User {user_id} purged")
                         else:
@@ -4782,18 +4781,29 @@ class BotCommands(commands.Cog):
                 try:
                     if user_id == "all":
                         # Nuclear: Clear all conversation memory
-                        self.bot.memory.user_contexts.clear()
-                        if hasattr(self.bot.memory, 'conversation_summaries'):
-                            self.bot.memory.conversation_summaries.clear()
-                        purge_results.append("✅ Conversation Memory: ALL users purged")
+                        self.bot.memory.conversations.clear()
+                        if hasattr(self.bot.memory, 'summaries'):
+                            self.bot.memory.summaries.clear()
+                        if hasattr(self.bot.memory, 'last_cleanup'):
+                            self.bot.memory.last_cleanup.clear()
+                        purge_results.append("✅ Conversation Memory: ALL channels purged")
                     else:
-                        # Target specific user
-                        user_id_int = int(user_id)
-                        if user_id_int in self.bot.memory.user_contexts:
-                            del self.bot.memory.user_contexts[user_id_int]
-                        if hasattr(self.bot.memory, 'conversation_summaries') and user_id_int in self.bot.memory.conversation_summaries:
-                            del self.bot.memory.conversation_summaries[user_id_int]
-                        purge_results.append(f"✅ Conversation Memory: User {user_id} purged")
+                        # Target specific user - need to find their conversations across channels
+                        purged_channels = []
+                        for channel_id, messages in list(self.bot.memory.conversations.items()):
+                            # Remove messages from this user
+                            original_count = len(messages)
+                            self.bot.memory.conversations[channel_id] = [
+                                msg for msg in messages if msg.author_id != user_id
+                            ]
+                            new_count = len(self.bot.memory.conversations[channel_id])
+                            if original_count != new_count:
+                                purged_channels.append(channel_id)
+                        
+                        if purged_channels:
+                            purge_results.append(f"✅ Conversation Memory: User {user_id} purged from {len(purged_channels)} channels")
+                        else:
+                            purge_results.append(f"ℹ️ Conversation Memory: User {user_id} not found")
                 except Exception as e:
                     purge_results.append(f"❌ Conversation Memory: {str(e)}")
             else:
