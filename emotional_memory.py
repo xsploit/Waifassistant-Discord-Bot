@@ -369,24 +369,24 @@ class EmotionalMemoryManager:
         profile.last_interaction = time.time()
         
         # Update familiarity based on number of interactions
-        # Familiarity increases logarithmically (0.0 to 1.0)
-        profile.familiarity_level = min(1.0, profile.conversation_count / 200.0)
+        # More realistic familiarity progression (0.0 to 1.0)
+        profile.familiarity_level = min(1.0, profile.conversation_count / 50.0)  # 50 messages = 100% familiar
         
-        # Update relationship level based on conversation count and familiarity
-        if profile.conversation_count >= 100 and profile.familiarity_level >= 0.7:
+        # Update relationship level based on conversation count and familiarity  
+        if profile.conversation_count >= 30 and profile.familiarity_level >= 0.6:
             profile.relationship_level = "close_friend"
-        elif profile.conversation_count >= 50 and profile.familiarity_level >= 0.4:
+        elif profile.conversation_count >= 15 and profile.familiarity_level >= 0.3:
             profile.relationship_level = "friend"  
-        elif profile.conversation_count >= 20 and profile.familiarity_level >= 0.1:
+        elif profile.conversation_count >= 5 and profile.familiarity_level >= 0.1:
             profile.relationship_level = "acquaintance"
         else:
             profile.relationship_level = "stranger"
         
-        # Update trust score slightly with each positive interaction
+        # Update trust score more meaningfully with each interaction
         if "positive" in emotional_context.lower() or importance_score > 0.7:
-            profile.trust_score = min(1.0, profile.trust_score + 0.005)
+            profile.trust_score = min(1.0, profile.trust_score + 0.02)  # Faster trust building
         elif "negative" in emotional_context.lower() and importance_score > 0.5:
-            profile.trust_score = max(0.0, profile.trust_score - 0.01)
+            profile.trust_score = max(0.0, profile.trust_score - 0.03)  # Faster trust loss
         
         # Keep only most important memories (top 100 by importance)
         profile.memories.sort(key=lambda m: m.importance_score, reverse=True)
@@ -415,15 +415,15 @@ class EmotionalMemoryManager:
         if actual_memory_count > profile.conversation_count:
             profile.conversation_count = actual_memory_count
             
-        # Recalculate familiarity
-        profile.familiarity_level = min(1.0, profile.conversation_count / 200.0)
+        # Recalculate familiarity with updated formula
+        profile.familiarity_level = min(1.0, profile.conversation_count / 50.0)  # 50 messages = 100% familiar
         
-        # Recalculate relationship level
-        if profile.conversation_count >= 100 and profile.familiarity_level >= 0.7:
+        # Recalculate relationship level with updated thresholds
+        if profile.conversation_count >= 30 and profile.familiarity_level >= 0.6:
             profile.relationship_level = "close_friend"
-        elif profile.conversation_count >= 50 and profile.familiarity_level >= 0.4:
+        elif profile.conversation_count >= 15 and profile.familiarity_level >= 0.3:
             profile.relationship_level = "friend"  
-        elif profile.conversation_count >= 20 and profile.familiarity_level >= 0.1:
+        elif profile.conversation_count >= 5 and profile.familiarity_level >= 0.1:
             profile.relationship_level = "acquaintance"
         else:
             profile.relationship_level = "stranger"

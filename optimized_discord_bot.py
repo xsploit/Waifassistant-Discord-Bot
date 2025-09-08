@@ -4228,7 +4228,7 @@ class BotCommands(commands.Cog):
 
         embed.add_field(
             name="💝 Mood Points",
-            value=f"{mood_points}/10",
+            value=f"{mood_points:.1f}/20 (range: -10 to +10)",
             inline=True
         )
 
@@ -4581,6 +4581,8 @@ class BotCommands(commands.Cog):
         user_id = str(target_user.id)
         
         try:
+            # Recalculate stats to ensure they're up to date
+            self.bot.emotional_memory.recalculate_user_stats(user_id)
             profile = self.bot.emotional_memory.get_user_profile(user_id)
             
             embed = discord.Embed(
