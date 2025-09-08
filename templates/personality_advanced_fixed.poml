@@ -204,10 +204,10 @@
         * For negative interactions: return -0.1 to -1.0 (negative number)
         * Your mood_points is the CHANGE amount, NOT the final mood!
         * EXAMPLES:
-          - Good positive interaction → "mood_points": 0.8
-          - Small positive interaction → "mood_points": 0.2  
-          - Bad negative interaction → "mood_points": -0.7
-          - Small negative interaction → "mood_points": -0.2
+          - Good positive interaction = "mood_points": 0.8
+          - Small positive interaction = "mood_points": 0.2  
+          - Bad negative interaction = "mood_points": -0.7
+          - Small negative interaction = "mood_points": -0.2
 
         <!-- ADVANCED STEPWISE INSTRUCTIONS (from Microsoft docs) -->
         <StepwiseInstructions>

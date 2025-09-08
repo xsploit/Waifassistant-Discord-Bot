@@ -4174,7 +4174,7 @@ class BotCommands(commands.Cog):
         try:
             import aiohttp
             async with aiohttp.ClientSession() as session:
-                async with session.get('http://127.0.0.1:11434/api/tags') as response:
+                async with session.get('http://localhost:11434/api/tags') as response:
                     if response.status == 200:
                         data = await response.json()
                         models = [model['name'] for model in data.get('models', [])]
