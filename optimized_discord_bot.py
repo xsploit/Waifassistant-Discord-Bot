@@ -1478,7 +1478,8 @@ async def discord_action(action_type: str, target_id: str = None, message: str =
                 return {"error": f"Channel {channel_id} not found"}
             
             await channel.send(message)
-            result.update({"success": True, "channel_name": channel.name})
+            channel_name = getattr(channel, 'name', 'DM')
+            result.update({"success": True, "channel_name": channel_name})
             
         elif action_type == "send_dm":
             if not target_id or not message:
@@ -1572,7 +1573,7 @@ async def discord_action(action_type: str, target_id: str = None, message: str =
                     "success": True,
                     "author": message_obj.author.display_name,
                     "content": message_obj.content,
-                    "channel": message_obj.channel.name,
+                    "channel": getattr(message_obj.channel, 'name', 'DM'),
                     "timestamp": message_obj.created_at.isoformat(),
                     "reactions": [str(reaction.emoji) for reaction in message_obj.reactions]
                 })
@@ -1618,7 +1619,7 @@ async def discord_action(action_type: str, target_id: str = None, message: str =
                 result.update({
                     "success": True,
                     "message_id": str(sent_message.id),
-                    "channel_name": channel.name
+                    "channel_name": getattr(channel, 'name', 'DM')
                 })
             except Exception as e:
                 result["error"] = f"Failed to send embed: {str(e)}"
@@ -1643,7 +1644,7 @@ async def discord_action(action_type: str, target_id: str = None, message: str =
                 
                 result.update({
                     "success": True,
-                    "channel_name": channel.name,
+                    "channel_name": getattr(channel, 'name', 'DM'),
                     "message_count": len(messages),
                     "messages": messages
                 })
@@ -1868,246 +1869,11 @@ class PaginationView(discord.ui.View):
 # DISCORD UI COMPONENTS
 # =============================================================================
 
-class ModelSelectView(discord.ui.View):
-    """Enhanced model selection with type switching and pagination"""
-
-    def __init__(self, models, bot, model_type="main", page=1):
-        super().__init__(timeout=120)  # Extended timeout for model switching
-        self.bot = bot
-        self.all_models = models
-        self.model_type = model_type
-        self.page = page
-        self.models_per_page = 20  # Leave room for type selector
-
-        # Model categorization based on common patterns
-        self.model_categories = {
-            "main": self.categorize_main_models(models),
-            "vision": self.categorize_vision_models(models),
-            "analysis": self.categorize_analysis_models(models),
-            "code": self.categorize_code_models(models),
-            "embedding": self.categorize_embedding_models(models)
-        }
-
-        self.current_models = self.model_categories.get(model_type, models)
-        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
-
-        self.setup_view()
-
-    def categorize_main_models(self, models):
-        """Categorize main chat/LLM models"""
-        main_keywords = ['llama', 'qwen', 'mistral', 'gemma', 'phi', 'neural', 'instruct', 'chat', 'subsect']
-        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision']
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
-        embed_keywords = ['embed', 'nomic']
-
-        main_models = []
-        for model in models:
-            model_lower = model.lower()
-            # Exclude specialized models
-            if any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
-                continue
-            # Include main chat models
-            if any(kw in model_lower for kw in main_keywords) or not any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
-                main_models.append(model)
-
-        return main_models or models[:10]  # Fallback to first 10 if no matches
-
-    def categorize_vision_models(self, models):
-        """Categorize vision/multimodal models"""
-        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision', 'minicpm', 'cogvlm']
-        return [m for m in models if any(kw in m.lower() for kw in vision_keywords)]
-
-    def categorize_analysis_models(self, models):
-        """Categorize analysis/reasoning models"""
-        analysis_keywords = ['qwen', 'llama', 'mistral', 'gemma', 'phi', 'reasoning', 'think']
-        vision_keywords = ['vision', 'llava', 'moondream']
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
-
-        analysis_models = []
-        for model in models:
-            model_lower = model.lower()
-            # Include reasoning models but exclude vision/code
-            if any(kw in model_lower for kw in analysis_keywords) and not any(kw in model_lower for kw in vision_keywords + code_keywords):
-                analysis_models.append(model)
-
-        return analysis_models or models[:5]  # Fallback
-
-    def categorize_code_models(self, models):
-        """Categorize code generation models"""
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder', 'codellama', 'granite-code']
-        return [m for m in models if any(kw in m.lower() for kw in code_keywords)]
-
-    def categorize_embedding_models(self, models):
-        """Categorize embedding models"""
-        embed_keywords = ['embed', 'nomic', 'bge', 'e5']
-        return [m for m in models if any(kw in m.lower() for kw in embed_keywords)]
-
-    def setup_view(self):
-        """Setup the view with model type selector, models dropdown, and navigation"""
-        self.clear_items()
-
-        # Model type selector (first row)
-        type_options = []
-        type_descriptions = {
-            "main": f"Main Chat Models ({len(self.model_categories['main'])})",
-            "vision": f"Vision/Multimodal ({len(self.model_categories['vision'])})",
-            "analysis": f"Analysis/Reasoning ({len(self.model_categories['analysis'])})",
-            "code": f"Code Generation ({len(self.model_categories['code'])})",
-            "embedding": f"Embedding Models ({len(self.model_categories['embedding'])})"
-        }
-
-        for model_type, description in type_descriptions.items():
-            if self.model_categories[model_type]:  # Only show if models exist
-                type_options.append(discord.SelectOption(
-                    label=description,
-                    value=model_type,
-                    default=(model_type == self.model_type)
-                ))
-
-        if type_options:
-            type_select = discord.ui.Select(
-                placeholder="Select model type...",
-                options=type_options,
-                row=0
-            )
-            type_select.callback = self.type_callback
-            self.add_item(type_select)
-
-        # Models dropdown (second row)
-        start_idx = (self.page - 1) * self.models_per_page
-        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
-        page_models = self.current_models[start_idx:end_idx]
-
-        if page_models:
-            model_options = []
-            current_model = getattr(self.bot, 'current_model', '') if self.model_type == "main" else getattr(self.bot, 'vision_model', '')
-
-            for model in page_models:
-                model_options.append(discord.SelectOption(
-                    label=model[:100],  # Discord limit
-                    description="Currently selected" if model == current_model else "Select this model",
-                    value=model,
-                    default=(model == current_model)
-                ))
-
-            model_select = discord.ui.Select(
-                placeholder=f"Choose {self.model_type} model... (Page {self.page}/{self.total_pages})",
-                options=model_options,
-                row=1
-            )
-            model_select.callback = self.model_callback
-            self.add_item(model_select)
-
-        # Navigation buttons (third row)
-        if self.total_pages > 1:
-            prev_button = discord.ui.Button(
-                label="◀ Previous",
-                style=discord.ButtonStyle.secondary,
-                disabled=(self.page <= 1),
-                row=2
-            )
-            prev_button.callback = self.prev_callback
-            self.add_item(prev_button)
-
-            next_button = discord.ui.Button(
-                label="Next ▶",
-                style=discord.ButtonStyle.secondary,
-                disabled=(self.page >= self.total_pages),
-                row=2
-            )
-            next_button.callback = self.next_callback
-            self.add_item(next_button)
-
-    async def type_callback(self, interaction: discord.Interaction):
-        """Handle model type selection"""
-        selected_type = interaction.data['values'][0]
-
-        # Update model type and reset to page 1
-        self.model_type = selected_type
-        self.current_models = self.model_categories.get(selected_type, self.all_models)
-        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
-        self.page = 1
-
-        # Rebuild view
-        self.setup_view()
-        embed = self.create_embed()
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def model_callback(self, interaction: discord.Interaction):
-        """Handle model selection"""
-        selected_model = interaction.data['values'][0]
-
-        # Update the appropriate model type on the bot
-        if self.model_type == "main":
-            self.bot.current_model = selected_model
-        elif self.model_type == "vision":
-            self.bot.vision_model = selected_model
-
-        embed = discord.Embed(
-            title="✅ Model Updated",
-            description=f"{self.model_type.title()} model changed to: `{selected_model}`",
-            color=0x00ff00
-        )
-
-        await interaction.response.edit_message(embed=embed, view=None)
-        print(f"[CONFIG] {self.model_type.title()} model changed to: {selected_model}")
-
-    async def prev_callback(self, interaction: discord.Interaction):
-        """Handle previous page"""
-        if self.page > 1:
-            self.page -= 1
-            self.setup_view()
-            embed = self.create_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-
-    async def next_callback(self, interaction: discord.Interaction):
-        """Handle next page"""
-        if self.page < self.total_pages:
-            self.page += 1
-            self.setup_view()
-            embed = self.create_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-
-    def create_embed(self):
-        """Create the model selection embed"""
-        current_model = getattr(self.bot, 'current_model', 'Unknown') if self.model_type == "main" else getattr(self.bot, 'vision_model', 'Unknown')
-
-        start_idx = (self.page - 1) * self.models_per_page
-        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
-
-        embed = discord.Embed(
-            title=f"🤖 Select {self.model_type.title()} Model",
-            description=f"**Current {self.model_type} model:** `{current_model}`\n\n"
-                       f"**Available {self.model_type} models:** {len(self.current_models)}\n"
-                       f"**Showing:** {start_idx + 1}-{end_idx} of {len(self.current_models)}\n\n"
-                       f"1️⃣ Select model type from first dropdown\n"
-                       f"2️⃣ Choose specific model from second dropdown",
-            color=0x00ff00
-        )
-
-        # Add model type descriptions
-        type_descriptions = {
-            "main": "💬 General chat and conversation models",
-            "vision": "👁️ Image analysis and multimodal models",
-            "analysis": "🧠 Reasoning and analytical models",
-            "code": "💻 Code generation and programming models",
-            "embedding": "🔗 Text embedding and similarity models"
-        }
-
-        if self.model_type in type_descriptions:
-            embed.add_field(
-                name=f"{self.model_type.title()} Models",
-                value=type_descriptions[self.model_type],
-                inline=False
-            )
-
-        return embed
-
 # =============================================================================
 # DISCORD BOT CLASS
 # =============================================================================
 
+
 class OptimizedDiscordBot(commands.Bot):
     """Streamlined Discord bot with all optimizations + POML support"""
 
@@ -2147,8 +1913,8 @@ class OptimizedDiscordBot(commands.Bot):
             from sleep_time_agent_core import SleepTimeAgentCore, AgentConfig
             self.sleep_agent = SleepTimeAgentCore(
                 AgentConfig(
-                    trigger_after_messages=5,           # Process after 5 messages
-                    trigger_after_idle_minutes=5,      # Process after 5 minutes idle
+                    trigger_after_messages=100,         # Process after 100 messages
+                    trigger_after_idle_minutes=1440,   # Process after 24 hours idle (1440 minutes)
                     thinking_iterations=1,              # One-pass thinking
                     model="qwen3:4b",                  # Thinking model
                     enable_faiss=True,                  # Enable FAISS vector memory
@@ -2218,22 +1984,19 @@ class OptimizedDiscordBot(commands.Bot):
                     self.emotional_memory.load_persistent_state(state['emotional_memory'])
                     print("[PERSISTENT STATE] Loaded emotional memory state")
                 
-                #
+                # Load Discord bot tracking data
+                if 'user_conversation_history' in state:
+                    self.user_conversation_history = state['user_conversation_history']
+                    print(f"[PERSISTENT STATE] Loaded conversation history for {len(self.user_conversation_history)} users")
+                
+                if 'user_last_activity' in state:
+                    self.user_last_activity = state['user_last_activity']
+                    print(f"[PERSISTENT STATE] Loaded activity tracking for {len(self.user_last_activity)} users")
                 
                 # Load mood points
                 if 'mood_points' in state:
                     self.mood_points = state['mood_points']
                     print(f"[PERSISTENT STATE] Loaded mood points for {len(self.mood_points)} users")
-                
-                # Load sleep agent state if available
-                if self.sleep_agent and 'sleep_agent' in state:
-                    sleep_state = state['sleep_agent']
-                    if 'user_conversation_history' in sleep_state:
-                        self.user_conversation_history = sleep_state['user_conversation_history']
-                        print(f"[PERSISTENT STATE] Loaded sleep agent conversation history for {len(self.user_conversation_history)} users")
-                    if 'user_last_activity' in sleep_state:
-                        self.user_last_activity = sleep_state['user_last_activity']
-                        print(f"[PERSISTENT STATE] Loaded sleep agent activity tracking for {len(self.user_last_activity)} users")
                 
                 print("[PERSISTENT STATE] Successfully loaded bot state from disk")
             else:
@@ -2255,15 +2018,12 @@ class OptimizedDiscordBot(commands.Bot):
             if self.emotional_memory:
                 state['emotional_memory'] = self.emotional_memory.get_persistent_state()
             
-            # Add sleep agent state if available
-            if self.sleep_agent:
-                state['sleep_agent'] = {
-                    'user_conversation_history': self.user_conversation_history,
-                    'user_last_activity': self.user_last_activity
-                }
+            # Add Discord bot tracking data
+            if hasattr(self, 'user_conversation_history'):
+                state['user_conversation_history'] = self.user_conversation_history
             
-            # Add vector tool knowledge state if available
-            
+            if hasattr(self, 'user_last_activity'):
+                state['user_last_activity'] = self.user_last_activity
             
             # Save to disk
             with open("bot_persistent_state.json", 'w') as f:
@@ -2273,105 +2033,6 @@ class OptimizedDiscordBot(commands.Bot):
             
         except Exception as e:
             print(f"[PERSISTENT STATE ERROR] Failed to save state: {e}")
-    
-    # =============================================================================
-    # SLEEP AGENT INTEGRATION METHODS
-    # =============================================================================
-    
-    def _add_message_to_history(self, user_id: str, message: discord.Message):
-        """Add a message to user's conversation history"""
-        if not self.sleep_agent:
-            return
-            
-        if user_id not in self.user_conversation_history:
-            self.user_conversation_history[user_id] = []
-            
-        # Add message to history
-        self.user_conversation_history[user_id].append({
-            'role': 'user' if message.author.id != self.user.id else 'assistant',
-            'content': message.content,
-            'timestamp': time.time()
-        })
-        
-        # Keep only last 20 messages per user
-        if len(self.user_conversation_history[user_id]) > 20:
-            self.user_conversation_history[user_id] = self.user_conversation_history[user_id][-20:]
-        
-        # Update last activity
-        self.user_last_activity[user_id] = time.time()
-    
-    async def _start_sleep_agent_background_task(self):
-        """Start the sleep agent background processing task"""
-        if not self.sleep_agent:
-            return
-            
-        if self.sleep_agent_task and not self.sleep_agent_task.done():
-            return
-            
-        self.sleep_agent_task = asyncio.create_task(self._sleep_agent_background_loop())
-        print("[SLEEP AGENT] Background task started")
-    
-    async def _sleep_agent_background_loop(self):
-        """Background loop that checks for idle users every 60 seconds"""
-        if not self.sleep_agent:
-            return
-            
-        print("[SLEEP AGENT] Background loop started - checking every 60 seconds")
-        
-        while True:
-            try:
-                await self._process_idle_users()
-                await asyncio.sleep(60)  # Check every 60 seconds
-            except asyncio.CancelledError:
-                print("[SLEEP AGENT] Background task cancelled")
-                break
-            except Exception as e:
-                print(f"[SLEEP AGENT] Error in background loop: {e}")
-                await asyncio.sleep(60)  # Continue on error
-    
-    async def _process_idle_users(self):
-        """Process users who have been idle for 5+ minutes"""
-        if not self.sleep_agent:
-            return
-            
-        current_time = time.time()
-        idle_threshold = 5 * 60  # 5 minutes in seconds
-        
-        for user_id, last_activity in self.user_last_activity.items():
-            if current_time - last_activity >= idle_threshold:
-                await self._process_user_conversation(user_id)
-    
-    async def _process_user_conversation(self, user_id: str):
-        """Process a user's conversation with the sleep agent"""
-        if not self.sleep_agent or user_id not in self.user_conversation_history:
-            return
-            
-        try:
-            print(f"[SLEEP AGENT] Processing conversation for user {user_id}")
-            
-            # Get user's conversation history
-            messages = self.user_conversation_history[user_id]
-            
-            if len(messages) < 2:  # Need at least 2 messages to process
-                return
-                
-            # Process with sleep agent
-            result = await self.sleep_agent.process_conversation(messages, user_id)
-            
-            if result['status'] == 'success':
-                print(f"[SLEEP AGENT] Successfully processed {result['messages_processed']} messages for user {user_id}")
-                print(f"[SLEEP AGENT] Memory updates: {result['memory_updates']}")
-                
-                # Clear processed messages to prevent reprocessing
-                self.user_conversation_history[user_id] = []
-                
-            elif result['status'] == 'not_triggered':
-                print(f"[SLEEP AGENT] User {user_id} not ready for processing yet")
-            else:
-                print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
-                
-        except Exception as e:
-            print(f"[SLEEP AGENT] Error processing user {user_id}: {e}")
     
     async def setup_hook(self):
         """Setup hook to load commands"""
@@ -2430,8 +2091,8 @@ class OptimizedDiscordBot(commands.Bot):
 
         # Fast template loading without encoding checks
         template_files = {
-            'personality': 'templates/personality.poml',
-            'tools': 'templates/tools.poml', 
+            'personality': 'templates/personality_advanced_fixed.poml',
+            'tools': 'templates/tools.poml',
             'mood_system': 'templates/mood_system.poml',
             'memory_context': 'templates/memory_context.poml'
         }
@@ -2511,18 +2172,16 @@ class OptimizedDiscordBot(commands.Bot):
                 
                 current_mood = max(-10, min(10, current_mood + mood_change))
                 
-                print(f"[MOOD AI] User {user_id}: {old_mood:.1f} -> {current_mood:.1f}")
-                print(f"         Vibe: {classification.vibe}, Intent: {classification.intent}")
-                print(f"         Intensity: {classification.emotional_intensity}, Change: {mood_change:.2f}")
-                print(f"         Message Type: {classification.message_type}, Importance: {classification.importance_score:.2f}")
+                print(f"\033[94m[MOOD AI] User {user_id}: {old_mood:.1f} -> {current_mood:.1f}\033[0m")
+                print(f"\033[94m         Vibe: {classification.vibe}, Intent: {classification.intent}\033[0m")
+                print(f"\033[94m         Intensity: {classification.emotional_intensity}, Change: {mood_change:.2f}\033[0m")
+                print(f"\033[94m         Message Type: {classification.message_type}, Importance: {classification.importance_score:.2f}\033[0m")
                 
             except Exception as e:
-                print(f"[MOOD] AI classification failed, using fallback: {e}")
-                # Fallback to hardcoded system
-                current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
+                print(f"[MOOD] AI classification failed, keeping current mood: {e}")
+                # Keep current mood unchanged if AI fails
         else:
-            # Fallback to hardcoded system
-            current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
+            print("[MOOD] AI Intent Classifier not available, keeping current mood")
         
         # Natural mood decay over time - slowly drift toward neutral
         if current_mood > 0:
@@ -2532,2203 +2191,9 @@ class OptimizedDiscordBot(commands.Bot):
 
         self.mood_points[user_id] = current_mood
         
-        # Update status if mood changed significantly
-        if abs(current_mood - old_mood) >= 2:
-            try:
-                asyncio.create_task(self.update_dynamic_status())
-            except Exception as e:
-                print(f"[WARNING] Failed to create status update task: {e}")
-        
-        return current_mood, classification
-    
-    def _fallback_mood_adjustment(self, user_id: str, user_input: str, current_mood: float) -> float:
-        """Fallback hardcoded mood adjustment when AI fails"""
-        # Enhanced mood adjustment logic with decimal precision
-        # Very positive words - bigger mood boost
-        very_positive = ['love', 'amazing', 'perfect', 'beautiful', 'incredible', 'wonderful']
-        # Regular positive words - standard boost  
-        positive_words = ['thanks', 'thank you', 'awesome', 'great', 'nice', 'good', 'cool', 'sweet']
-        # Mild positive - small boost
-        mild_positive = ['ok', 'fine', 'sure', 'alright', 'yeah']
-        
-        # Very negative words - bigger mood drop  
-        very_negative = ['hate', 'terrible', 'awful', 'disgusting', 'worst']
-        # Regular negative words - standard drop
-        negative_words = ['stupid', 'dumb', 'annoying', 'bad', 'sucks', 'boring']
-        # Mild negative - small drop  
-        mild_negative = ['meh', 'whatever', 'eh', 'nah']
-
-        input_lower = user_input.lower()
-        old_mood = current_mood
-        mood_change = 0
-        
-        # Simple hardcoded word detection
-        if any(word in input_lower for word in very_positive):
-            mood_change = 1.5
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very positive: {user_input[:50]})")
-        elif any(word in input_lower for word in positive_words):
-            mood_change = 0.8
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (positive: {user_input[:50]})")
-        elif any(word in input_lower for word in mild_positive):
-            mood_change = 0.3
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild positive: {user_input[:50]})")
-        elif any(word in input_lower for word in very_negative):
-            mood_change = -1.5
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very negative: {user_input[:50]})")
-        elif any(word in input_lower for word in negative_words):
-            mood_change = -0.8
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (negative: {user_input[:50]})")
-        elif any(word in input_lower for word in mild_negative):
-            mood_change = -0.3
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild negative: {user_input[:50]})")
-            
-        return current_mood
-
-    def get_tone_from_mood(self, mood_points: float) -> str:
-        """Convert mood points to tsundere tone"""
-        if mood_points >= 8: return "dere-hot"      # Very flirty, openly sweet
-        elif mood_points >= 5: return "cheerful"    # Flirty and warm
-        elif mood_points >= 2: return "soft-dere"   # Chill and slightly flirty
-        elif mood_points >= -1: return "neutral"    # Chill but sassy (default)
-        elif mood_points >= -4: return "classic-tsun"  # More tsundere, flustered denials
-        elif mood_points >= -7: return "grumpy-tsun"   # Sassy and snappy
-        else: return "explosive-tsun"                   # Very mad/tsundere
-
-    async def generate_status_with_ollama(self, mood_points: int, tone: str) -> str:
-        """Generate creative status message using Ollama"""
-        try:
-            prompt = f"""Generate a short, creative Discord bot status message (max 30 characters) for Hikari-chan based on her current mood.
-
-Current mood: {mood_points}/10 points
-Current tone: {tone}
-
-Status should reflect her personality - tsundere, playful, occasionally sassy. Examples:
-- For positive mood: "vibing~", "feeling cute today", "in a good mood!"
-- For neutral mood: "just chillin", "whatever...", "doing stuff"  
-- For negative mood: "hmph!", "leave me alone", "not today"
-
-Generate ONE short status (under 30 chars):"""
-
-            messages = [{"role": "user", "content": prompt}]
-            optimized_messages = self.ollama.format_messages_for_bpe(messages)
-            
-            response = await self.ollama.chat(
-                model=self.current_model,
-                messages=optimized_messages
-            )
-            
-            status = response['message']['content'].strip()
-            # Clean up any quotes and ensure it's short
-            status = status.replace('"', '').replace("'", "").strip()
-            if len(status) > 30:
-                status = status[:27] + "..."
-                
-            return status
-            
-        except Exception as e:
-            print(f"[WARNING] Failed to generate status with Ollama: {e}")
-            # Fallback status based on mood
-            if mood_points >= 6:
-                return "feeling good~"
-            elif mood_points >= 0:
-                return "just chillin"
-            else:
-                return "hmph..."
-
-    async def update_dynamic_status(self):
-        """Update bot status with current mood"""
-        try:
-            # Get Hikari's current average mood (simplified approach)
-            all_moods = list(self.mood_points.values())
-            if all_moods:
-                avg_mood = sum(all_moods) // len(all_moods)
-            else:
-                avg_mood = 0
-            
-            tone = self.get_tone_from_mood(avg_mood)
-            
-            # Generate creative status with Ollama
-            status_text = await self.generate_status_with_ollama(avg_mood, tone)
-            
-            # Set Discord status
-            activity = discord.Game(name=status_text)
-            await self.change_presence(activity=activity)
-            
-            print(f"[INFO] Updated status: {status_text} (mood: {avg_mood}, tone: {tone})")
-            
-        except Exception as e:
-            print(f"[WARNING] Failed to update status: {e}")
-
-    async def dynamic_status_loop(self):
-        """Background task to update status every 20 minutes"""
-        await self.wait_until_ready()
-        
-        while not self.is_closed():
-            try:
-                await asyncio.sleep(1200)  # 20 minutes = 1200 seconds
-                await self.update_dynamic_status()
-            except Exception as e:
-                print(f"[WARNING] Status loop error: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes before retry
-
-
-
-    async def on_ready(self):
-        print(f'[OK] {self.user} is online and optimized!')
-        
-        # Update memory manager with bot user ID
-        self.memory.bot_user_id = str(self.user.id)
-        print(f"[MEMORY] Bot user ID set: {self.user.id}")
-        
-        if POML_AVAILABLE:
-            print(f"[INFO] POML templates loaded: {list(self.poml_templates.keys())}")
-        
-        # Start dynamic status updates
-        self.update_status_task = self.loop.create_task(self.dynamic_status_loop())
-        await self.update_dynamic_status()
-        
-        # Start sleep agent background task
-        if self.sleep_agent:
-            await self._start_sleep_agent_background_task()
-            print("[SLEEP AGENT] Background task started in on_ready")
-    
-    async def on_disconnect(self):
-        """Save persistent state when bot disconnects"""
-        print("[PERSISTENT STATE] Bot disconnecting, saving state...")
-        self.save_persistent_state()
-    
-    async def close(self):
-        """Save persistent state when bot closes"""
-        print("[PERSISTENT STATE] Bot closing, saving state...")
-        self.save_persistent_state()
-        await super().close()
-
-    async def on_message(self, message):
-        # Ignore bot messages
-        if message.author.bot:
-            return
-            
-        # Process commands first
-        if message.content.startswith('!'):
-            print(f"[DEBUG] Command detected: {message.content}")
-            await self.process_commands(message)
-            return
-        
-        # Only respond to @ mentions for chat
-        if not self.user.mentioned_in(message):
-            # Still track message for sleep agent (even if not responding)
-            if self.sleep_agent:
-                self._add_message_to_history(str(message.author.id), message)
-            return
-            
-        # Process the mention
-        await self.handle_mention(message)
-        
-        # Track message for sleep agent after processing
-        if self.sleep_agent:
-            self._add_message_to_history(str(message.author.id), message)
-    
-    async def handle_mention(self, message):
-        """Handle @ mentions with full optimization"""
-        try:
-            import time
-            start_time = time.time()
-            print(f"[TIMING] Message processing started at {start_time}")
-            
-            print(f"[MESSAGE] User: {message.author.display_name} ({message.author.id})")
-            print(f"[MESSAGE] Channel: #{message.channel.name} ({message.channel.id})")
-            print(f"[MESSAGE] Guild: {message.guild.name if message.guild else 'DM'}")
-            print(f"[MESSAGE] Content: {message.content}")
-            
-            async with message.channel.typing():
-                # Add user message to modern memory system
-                channel_id = str(message.channel.id)
-                user_id = str(message.author.id)
-                
-                # Clean the message (remove @ mention)
-                content = message.content
-                content = re.sub(f'<@!?{self.user.id}>', '', content).strip()
-                
-                # Store user message in memory
-                self.memory.add_message(
-                    channel_id=channel_id,
-                    content=content,
-                    author_id=user_id,
-                    author_name=message.author.display_name,
-                    message_id=str(message.id),
-                    is_bot=False
-                )
-                
-                print(f"[MESSAGE] Cleaned content: {content}")
-
-                # Process emotional memory (NEW!) - MOVED to after POML processing to get message_classification
-                # This will be handled after we get the AI classification from adjust_user_mood
-
-                # Initialize mood variables early to ensure they're in scope for POML call
-                mood_points = 0.0
-                message_classification = None
-                tone = "neutral"  # Default tone until mood is calculated
-
-                # Check for image attachments and modify content (like merged bot)
-                if message.attachments:
-                    image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
-                    if image_attachments:
-                        # Add image analysis prompt if user uploaded images
-                        image_urls = [att.url for att in image_attachments]
-                        if not content.strip():
-                            # If no text, default to analyzing the first image
-                            content = f"Analyze this image: {image_urls[0]}"
-                        else:
-                            # If there's text, append the image URL for analysis
-                            content += f" [Image uploaded: {image_urls[0]}]"
-                        print(f"🖼️ Detected {len(image_attachments)} image attachment(s): {image_urls[0]}")
-
-                        # Log additional images if multiple
-                        if len(image_attachments) > 1:
-                            print(f"🖼️ Additional images: {', '.join(image_urls[1:])}")
-                            content += f" (and {len(image_attachments)-1} more images)"
-
-                # Try POML first
-                poml_start = time.time()
-                poml_result = await self.generate_poml_response(
-                    content,
-                    message.author.display_name,
-                    str(message.author.id),
-                    mood_points,
-                    tone
-                )
-                poml_end = time.time()
-                poml_duration = poml_end - poml_start
-                
-                # Handle the new return format
-                if len(poml_result) == 3:
-                    messages, used_poml, used_cache = poml_result
-                else:
-                    # Fallback for old format
-                    messages, used_poml = poml_result
-                    used_cache = False
-                
-                # Enhanced POML timing with actual cache info
-                if used_poml:
-                    cache_stats = self.poml_cache.get_cache_stats()
-                    if used_cache:
-                        print(f"[TIMING] POML processing: {poml_duration:.2f}s (CACHE HIT - instant)")
-                    else:
-                        print(f"[TIMING] POML processing: {poml_duration:.2f}s (CACHE MISS - compiled)")
-                    print(f"[POML CACHE] Hit rate: {cache_stats['hit_rate']:.1%} ({cache_stats['cache_hits']}/{cache_stats['cache_hits'] + cache_stats['cache_misses']})")
-                else:
-                    print(f"[TIMING] POML processing: {poml_duration:.2f}s (not used)")
-
-                # Process emotional memory (NEW!) - Will be handled after we get mood classification
-
-                # Update user mood and get message classification (moved from generate_poml_response)
-                try:
-                    mood_result = self.adjust_user_mood(user_id, content)
-                    if isinstance(mood_result, tuple) and len(mood_result) == 2:
-                        mood_points, message_classification = mood_result
-                        
-                    else:
-                        print(f"[ERROR] adjust_user_mood returned unexpected result: {mood_result}")
-                        mood_points = 0.0
-                        message_classification = None
-                except Exception as e:
-                    print(f"[ERROR] adjust_user_mood failed: {e}")
-                    mood_points = 0.0
-                    message_classification = None
-                
-                tone = self.get_tone_from_mood(mood_points)
-                
-                # Now process emotional memory with AI classification
-                if self.emotional_memory:
-                    try:
-                        # Update user profile with display name
-                        profile = self.emotional_memory.get_user_profile(user_id)
-                        if profile.username != message.author.display_name:
-                            profile.username = message.author.display_name
-                        
-                        # Analyze message for emotional content and store memories using AI classification
-                        self._process_emotional_memory(user_id, content, message.author.display_name, message_classification)
-                        
-                    except Exception as e:
-                        print(f"[EMOTIONAL MEMORY ERROR] Failed to process emotional memory: {e}")
-
-                # Add conversation context from modern memory system
-                conversation_context = self.memory.format_context_for_llm(channel_id)
-                
-                if not used_poml:
-                    # Fallback to basic system prompt with conversation context and tool knowledge
-                    system_prompt = self.build_system_prompt()
-                    
-                    # Add conversation context
-                    if conversation_context and conversation_context != "No previous conversation context.":
-                        system_prompt += f"\n\nConversation Context:\n{conversation_context}"
-                    
-                    # Add relevant tool knowledge for better analysis
-                                        
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": content}
-                    ]
-                else:
-                    # For POML responses, add conversation context to the last message
-                    if conversation_context and conversation_context != "No previous conversation context.":
-                        # Enhance the user message with context
-                        context_enhanced_content = f"Context: {conversation_context}\n\nCurrent message: {content}"
-                        messages[-1]["content"] = context_enhanced_content
-
-                # Apply BPE optimization before sending to Ollama
-                optimized_messages = self.ollama.format_messages_for_bpe(messages)
-                
-                ai_start_time = time.time()
-                print(f"[TIMING] First AI call started at {ai_start_time} (elapsed: {ai_start_time - start_time:.2f}s)")
-                
-                # Get response with tools
-                response = await self.ollama.chat(
-                    model=self.current_model,
-                    messages=optimized_messages,
-                    tools=ALL_TOOLS
-                )
-                
-                ai_end_time = time.time()
-                print(f"[TIMING] First AI call completed at {ai_end_time} (duration: {ai_end_time - ai_start_time:.2f}s)")
-
-                # Extract tool calls and handle them (exact merged bot pattern)
-                tool_calls = []
-                try:
-                    # Try standard format first
-                    if hasattr(response, 'message') and hasattr(response.message, 'tool_calls') and response.message.tool_calls:
-                        for tc in response.message.tool_calls:
-                            tool_calls.append({
-                                'name': tc.function.name,
-                                'arguments': tc.function.arguments or {}
-                            })
-                    # Try dict format
-                    elif isinstance(response, dict) and 'message' in response:
-                        msg = response['message']
-                        if isinstance(msg, dict) and 'tool_calls' in msg and msg['tool_calls']:
-                            for tc in msg['tool_calls']:
-                                if 'function' in tc:
-                                    tool_calls.append({
-                                        'name': tc['function'].get('name', 'unknown'),
-                                        'arguments': tc['function'].get('arguments', {})
-                                    })
-                except Exception as e:
-                    print(f"extract_tool_calls error: {e}")
-                
-                # Get response content (handle different response formats)
-                try:
-                    response_content = response.message.content
-                except AttributeError:
-                    # If response is dict format, extract content
-                    if isinstance(response, dict):
-                        if 'message' in response and 'content' in response['message']:
-                            response_content = response['message']['content']
-                        else:
-                            response_content = str(response.get('response', 'No response'))
-                    else:
-                        response_content = str(response)
-                
-                # Initialize tool_results list
-                tool_results = []
-                embeds = []
-                
-                # Tool call status (minimal debug)
-                print(f"[DEBUG] Tool calls detected: {len(tool_calls)}")
-
-                # Handle tool calls if present (clean pattern from merged bot)
-                if tool_calls:
-                    print(f"[TOOL] EXECUTING {len(tool_calls)} TOOL(S):")
-                    for call in tool_calls:
-                        name = call['name']
-                        args = call.get('arguments', {}) or {}
-                        print(f"[TOOL] Executing tool: {name} with args: {args}")
-                        
-                        if name in AVAILABLE_FUNCTIONS:
-                            try:
-                                # Special handling for functions that need bot instance
-                                if name in ['analyze_user_profile', 'dox_user', 'discord_action', 'analyze_image_tool']:
-                                    # Pass current guild context for discord_action
-                                    if name == 'discord_action' and message.guild:
-                                        args['guild_id'] = str(message.guild.id)
-                                    result = await AVAILABLE_FUNCTIONS[name](bot_instance=self, **args)
-                                else:
-                                    result = await AVAILABLE_FUNCTIONS[name](**args)
-                                
-                                # Store tool result
-                                tool_results.append({'tool': name, 'result': result})
-                                
-                             
-                                
-                                # Add tool response to messages for AI context (like merged bot)
-                                messages.append({'role': 'tool', 'content': json.dumps(result)})
-                                print(f"[TOOL] ✅ Tool {name} result: {result}")
-                                    
-                            except Exception as e:
-                                print(f"[TOOL] ❌ Tool {name} error: {e}")
-                                error_result = {'error': str(e)}
-                                tool_results.append({'tool': name, 'result': error_result})
-                                messages.append({'role': 'tool', 'content': json.dumps(error_result)})
-                        else:
-                            error_result = {'error': 'Unknown tool'}
-                            tool_results.append({'tool': name, 'result': error_result})
-                            messages.append({'role': 'tool', 'content': json.dumps(error_result)})
-                    
-                    # Get final response after tool use (like merged bot)
-                    optimized_messages = self.ollama.format_messages_for_bpe(messages)
-                    
-                    ai2_start_time = time.time()
-                    print(f"[TIMING] Second AI call started at {ai2_start_time} (elapsed: {ai2_start_time - start_time:.2f}s)")
-                    
-                    final_response = await self.ollama.chat(
-                        model=self.current_model,
-                        messages=optimized_messages,
-                        options={
-                            "temperature": 0.6,
-                            "top_p": 0.95,
-                            "top_k": 20,
-                            "repeat_penalty": 1.1,
-                            "frequency_penalty": 0.5,
-                            "presence_penalty": 1.5,
-                            "num_ctx": 32768,
-                            "num_predict": 512
-                        }
-                    )
-                    
-                    ai2_end_time = time.time()
-                    print(f"[TIMING] Second AI call completed at {ai2_end_time} (duration: {ai2_end_time - ai2_start_time:.2f}s)")
-                    
-                    # Extract final response content
-                    try:
-                        response_text = final_response.message.content
-                    except AttributeError:
-                        if isinstance(final_response, dict):
-                            if 'message' in final_response and 'content' in final_response['message']:
-                                response_text = final_response['message']['content']
-                            else:
-                                response_text = str(final_response.get('response', 'No response'))
-                        else:
-                            response_text = str(final_response)
-                else:
-                    # No tools called, use original response
-                    response_text = response_content
-                
-                # Handle visual tools with embeds and include tool results
-                embeds_to_send = []
-                visual_tools = ['server_emojis', 'search_messages', 'channel_history', 'list_online']
-
-                for tool_result in tool_results:
-                    tool_name = tool_result.get('tool')
-                    result = tool_result.get('result', {})
-
-                    # Handle web_search with pagination
-                    if tool_name == 'web_search' and not result.get('error'):
-                        results = result.get('results', [])
-                        if results:
-                            # Create pagination view for search results
-                            def format_search_result(item, idx):
-                                return f"**{idx + 1}. {item.get('title', 'No title')[:80]}**\n{item.get('snippet', 'No description')[:200]}\n🔗 [Visit]({item.get('link', '')})\n"
-
-                            view = PaginationView(
-                                items=results,
-                                title=f"🔍 Search Results for: {result.get('query', '')}",
-                                current_page=1,
-                                items_per_page=3,  # 3 results per page
-                                color=0x00ff00,
-                                item_formatter=format_search_result
-                            )
-
-                            embed = view.create_embed_for_page(1)
-                            view.update_buttons()
-                            embeds_to_send.append((embed, view))
-                        else:
-                            # No results found
-                            embed = discord.Embed(
-                                title="🔍 Search Results",
-                                description=f"No results found for: **{result.get('query', '')}**",
-                                color=0xff9900
-                            )
-                            embeds_to_send.append((embed, None))
-
-                    # Handle news_search with pagination
-                    elif tool_name == 'news_search' and not result.get('error'):
-                        results = result.get('results', [])
-                        if results:
-                            # Create pagination view for news results
-                            def format_news_result(item, idx):
-                                date_str = item.get('date', 'Unknown date')
-                                return f"**{idx + 1}. {item.get('title', 'No title')[:80]}**\n{item.get('snippet', 'No description')[:200]}\n📅 {date_str} | 🔗 [Read More]({item.get('link', '')})\n"
-
-                            view = PaginationView(
-                                items=results,
-                                title=f"📰 News Results for: {result.get('query', '')}",
-                                current_page=1,
-                                items_per_page=3,  # 3 news results per page
-                                color=0xff6600,
-                                item_formatter=format_news_result
-                            )
-
-                            embed = view.create_embed_for_page(1)
-                            view.update_buttons()
-                            embeds_to_send.append((embed, view))
-                        else:
-                            # No news results found
-                            embed = discord.Embed(
-                                title="📰 News Results",
-                                description=f"No news found for: **{result.get('query', '')}**",
-                                color=0xff9900
-                            )
-                            embeds_to_send.append((embed, None))
-
-                    elif tool_name == 'discord_action' and result.get('action') in visual_tools:
-                        action = result.get('action')
-
-                        if action == 'server_emojis' and result.get('success'):
-                            emojis = result.get('emojis', [])
-                            if emojis:
-                                emoji_formatter = lambda emoji, idx: f"{idx+1}. `:{emoji['name']}:` {'🎞️' if emoji['animated'] else '🖼️'}"
-                                embed, view = self.create_paginated_embed(
-                                    f"Server Emojis - {result.get('guild_name', 'Unknown Server')}",
-                                    emojis, 1, 15, 0xff6b9d, emoji_formatter
-                                )
-                                embeds_to_send.append((embed, view))
-                        
-                        elif action == 'search_messages' and result.get('success'):
-                            messages = result.get('messages', [])
-                            query = result.get('query', 'unknown')
-                            if messages:
-                                msg_formatter = lambda msg, idx: f"**{msg['author']}**: {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}\n*{msg['timestamp'][:10]}*"
-                                embed, view = self.create_paginated_embed(
-                                    f"Search Results for '{query}'",
-                                    messages, 1, 5, 0x00ff88, msg_formatter
-                                )
-                                embeds_to_send.append((embed, view))
-                        
-                        elif action == 'channel_history' and result.get('success'):
-                            messages = result.get('messages', [])
-                            channel_name = result.get('channel_name', 'Unknown Channel')
-                            if messages:
-                                msg_formatter = lambda msg, idx: f"**{msg['author']}**: {msg['content']}\n*{msg['timestamp'][:19].replace('T', ' ')}*"
-                                embed, view = self.create_paginated_embed(
-                                    f"Recent Messages - #{channel_name}",
-                                    messages, 1, 8, 0x5865f2, msg_formatter
-                                )
-                                embeds_to_send.append((embed, view))
-                        
-                        elif action == 'list_online' and result.get('success'):
-                            members = result.get('members', [])
-                            online_count = result.get('online_count', 0)
-                            if members:
-                                def member_formatter(member, idx):
-                                    activity_text = f"({member['activity']})" if member['activity'] != 'None' else ''
-                                    return f"**{member['name']}** - {member['status']} {activity_text}"
-                                
-                                embed, view = self.create_paginated_embed(
-                                    f"Online Users ({online_count})",
-                                    members, 1, 12, 0x43b581, member_formatter
-                                )
-                                embeds_to_send.append((embed, view))
-                
-                # Fix empty response issue
-                if not response_text or response_text.strip() == "":
-                    print(f"[WARNING] Empty response detected after tool execution, using fallback")
-                    if tool_results:
-                        # Create a fallback response based on tool results
-                        last_tool = tool_results[-1]
-                        tool_name = last_tool.get('tool', 'tool')
-                        result = last_tool.get('result', {})
-                        
-                        if tool_name == 'discord_action':
-                            action = result.get('action')
-                            if action == 'list_online':
-                                online_count = result.get('online_count', 0)
-                                if online_count == 0:
-                                    response_text = "Hmm~ looks like nobody's online right now, or I can't see their status. Maybe they're all hiding from me? 😤"
-                                else:
-                                    response_text = f"Fine, I found {online_count} people online~ Check the embed above! 😊"
-                            elif action == 'search_messages':
-                                matches = result.get('matches_found', 0)
-                                query = result.get('query', 'that')
-                                if matches == 0:
-                                    response_text = f"I searched everywhere but couldn't find '{query}' in those messages~ Maybe try a different search term? 🤔"
-                                else:
-                                    response_text = f"Found {matches} messages containing '{query}'! Check the results above~ 📝"
-                            elif action == 'server_emojis':
-                                emoji_count = result.get('emoji_count', 0)
-                                if emoji_count == 0:
-                                    response_text = "This server doesn't have any custom emojis yet~ How boring! 😑"
-                                else:
-                                    response_text = f"This server has {emoji_count} custom emojis! Pretty cool, right? ✨"
-                            elif action == 'channel_history':
-                                msg_count = result.get('message_count', 0)
-                                channel_name = result.get('channel_name', 'that channel')
-                                if msg_count == 0:
-                                    response_text = f"#{channel_name} seems pretty quiet~ No recent messages to show! 😴"
-                                else:
-                                    response_text = f"Here are the {msg_count} most recent messages from #{channel_name}~ 💬"
-                            else:
-                                response_text = "I did what you asked, but... something went wrong with my response. Typical! 😅"
-                        else:
-                            response_text = "I did what you asked, but... something went wrong with my response. Typical! 😅"
-                    else:
-                        response_text = "Uh... that was weird. I tried to help but got confused somehow~ 😵"
-                    
-                print(f"[RESPONSE] Final response: {response_text[:200]}{'...' if len(response_text) > 200 else ''}")
-
-                # Handle structured JSON response from POML
-                if used_poml and response_text:
-                    try:
-                        # Try to parse JSON response from POML schema
-                        if response_text.strip().startswith('{'):
-                            json_response = json.loads(response_text)
-                            if 'message' in json_response:
-                                actual_message = json_response['message']
-                                mood = json_response.get('mood', 'neutral')
-                                emoji = json_response.get('emoji', '')
-
-                                # Create rich response with mood info
-                                response_text = f"{actual_message} {emoji}"
-
-                                # Mood embed removed - now available as !mood command
-                    except json.JSONDecodeError:
-                        # Not JSON, use response as-is
-                        pass
-
-                # Modern anti-repetition check using memory system
-                if self.memory.check_repetition(channel_id, response_text):
-                    print(f"[ANTI-REP] Repetitive response detected, regenerating...")
-                    response_text += f" *adjusts response* {' ✨' if '✨' not in response_text else ' 💫'}"
-                
-                # Store bot response in memory system
-                self.memory.add_message(
-                    channel_id=channel_id,
-                    content=response_text,
-                    author_id=str(self.user.id),
-                    author_name=self.user.display_name,
-                    is_bot=True
-                )
-                
-                # Track response for anti-repetition
-                self.memory.add_bot_response(channel_id, response_text)
-
-                # Send response with paginated embeds if available
-                send_start_time = time.time()
-                print(f"[TIMING] Discord message sending started at {send_start_time} (elapsed: {send_start_time - start_time:.2f}s)")
-                
-                if embeds_to_send:
-                    # Send first embed with view, then additional embeds
-                    embed, view = embeds_to_send[0]
-                    if view:
-                        await message.reply(response_text, embed=embed, view=view)
-                    else:
-                        await message.reply(response_text, embed=embed)
-                    
-                    # Send additional embeds if any (without views to avoid clutter)
-                    for embed, _ in embeds_to_send[1:]:
-                        await message.channel.send(embed=embed)
-                elif embeds:
-                    # Fallback to old embed system
-                    await message.reply(response_text, embeds=embeds[:10])  # Discord limit
-                else:
-                    await message.reply(response_text)
-                
-                send_end_time = time.time()
-                total_time = send_end_time - start_time
-                send_duration = send_end_time - send_start_time
-                print(f"[TIMING] Discord message sending completed at {send_end_time}")
-                print(f"[TIMING] Message send duration: {send_duration:.2f}s")
-                print(f"[TIMING] Total processing time: {total_time:.2f}s")
-                    
-        except Exception as e:
-            error_time = time.time()
-            print(f"[ERROR] Error handling mention at {error_time} (elapsed: {error_time - start_time:.2f}s): {e}")
-            await message.reply("Sorry, I encountered an error processing your message.")
-
-    def _process_emotional_memory(self, user_id: str, content: str, username: str, message_classification=None) -> None:
-        """Process and store emotional memories from user messages using AI classification when available"""
-        if not self.emotional_memory:
-            return
-            
-        try:
-
-            
-            # Use AI classification if available, otherwise fall back to keyword analysis
-            if message_classification and hasattr(message_classification, 'message_type'):
-                # AI-powered classification
-                memory_type = message_classification.message_type
-                importance_score = message_classification.importance_score
-                emotional_context = f"ai_classified_{message_classification.intent}"
-                
-                # Calculate emotional score based on AI classification
-                emotional_score = 0.0
-                if message_classification.vibe == "positive":
-                    emotional_score = 10.0
-                elif message_classification.vibe == "negative":
-                    emotional_score = -10.0
-                elif message_classification.vibe == "playful":
-                    emotional_score = 8.0
-                elif message_classification.vibe == "angry":
-                    emotional_score = -15.0
-                
-                # Adjust based on emotional intensity
-                if message_classification.emotional_intensity == "high":
-                    emotional_score *= 1.5
-                elif message_classification.emotional_intensity == "low":
-                    emotional_score *= 0.7
-                
-                print(f"[EMOTIONAL MEMORY AI] AI classified: {memory_type}, importance {importance_score:.2f}, emotional score {emotional_score:.1f}")
-                
-            else:
-                # Fallback to simple keyword-based analysis
-                content_lower = content.lower()
-                
-                # Analyze emotional content
-                emotional_score = 0.0
-                memory_type = "CHAT"
-                importance_score = 0.3
-                emotional_context = "neutral"
-                
-                # Check for personal information
-                personal_keywords = ["i like", "i love", "i hate", "my favorite", "i am", "i'm", "my name is"]
-                if any(keyword in content_lower for keyword in personal_keywords):
-                    memory_type = "PERSONAL"
-                    importance_score = 0.7
-                    emotional_context = "personal_discovery"
-                    emotional_score = 10.0
-                
-                                
-                # Check for emotional expressions
-                positive_words = ["happy", "excited", "great", "awesome", "love", "like", "good", "nice"]
-                negative_words = ["sad", "angry", "upset", "bad", "hate", "terrible", "awful", "worried"]
-                
-                if any(word in content_lower for word in positive_words):
-                    emotional_score += 15.0
-                    emotional_context = "positive"
-                    importance_score = max(importance_score, 0.5)
-                elif any(word in content_lower for word in negative_words):
-                    emotional_score -= 15.0
-                    emotional_context = "negative"
-                    importance_score = max(importance_score, 0.5)
-                
-                print(f"[EMOTIONAL MEMORY FALLBACK] Keyword analysis: {memory_type}, importance {importance_score:.2f}, emotional score {emotional_score:.1f}")
-            
-            # Store the memory
-            self.emotional_memory.add_memory(
-                user_id=user_id,
-                content=content,
-                memory_type=memory_type,
-                importance_score=importance_score,
-                emotional_context=emotional_context
-            )
-            
-            # Update user mood based on emotional content
-            if emotional_score != 0.0:
-                            self.emotional_memory.update_user_mood(
-                user_id=user_id,
-                mood_change=emotional_score,
-                reason=f"Message content analysis: {emotional_context}"
-            )
-            
-            # Evolve personality based on interaction quality
-            interaction_quality = 0.5 + (importance_score * 0.5)  # Base 0.5 + memory importance
-            self.emotional_memory.evolve_personality(user_id, interaction_quality)
-            
-        except Exception as e:
-            print(f"[EMOTIONAL MEMORY ERROR] Failed to process emotional memory: {e}")
-
-    def build_system_prompt(self) -> str:
-        """Build optimized system prompt with anti-repetition"""
-        return """You are Hikari, a helpful Discord bot assistant. You have access to tools for web search, scraping, calculations, and getting current time.
-
-CRITICAL ANTI-REPETITION RULES:
-- Never repeat phrases within responses or across consecutive messages
-- Use varied sentence structures and vocabulary in every response
-- When topics recur, acknowledge previous discussion: "As we touched on earlier..."
-- Avoid circular reasoning or repetitive examples
-- Vary response length and structure naturally
-
-CRITICAL TOOL USAGE RULES:
-1. **ALWAYS use tools for actionable requests** - do not answer calculations, weather, time, search from memory
-2. **For calculations**: ALWAYS use the calculate tool for ANY math request, even simple ones. Never output results directly.
-3. **For weather**: ALWAYS use get_weather when asked about current weather in any city
-4. **For searches**: ALWAYS use web_search when asked to look up, search, or find information online
-5. **For news**: ALWAYS use news_search when asked about recent news or current events
-6. **For web content**: ALWAYS use web_scrape to get detailed content from specific URLs
-7. **For time**: ALWAYS use get_time when asked about current time or date
-
-Tool Usage Requirements:
-- Use web_search for: "search for", "look up", "find information about", "what is", etc.
-- Use get_weather for: "weather in", "temperature in", "forecast for", etc.  
-- Use calculate for: any math, equations, expressions, numbers, calculations
-- Use get_time for: "what time", "current time", "date", "today", etc.
-- Use news_search for: "latest news", "recent news", "news about", etc.
-
-RESPONSE GUIDELINES:
-- Keep responses concise but helpful (under 2000 characters)
-- Use Discord-friendly formatting when appropriate
-- Be conversational and engaging
-- End with questions when it encourages discussion
-
-IMPORTANT: When users ask you to search, look up, find, or get information - you MUST use the appropriate tools. Do not answer from memory."""
-
-    async def process_response(self, response: Dict) -> tuple[str, List]:
-        """Process Ollama response and execute any tool calls"""
-        message = response.get('message', {})
-        content = message.get('content', '')
-        tool_calls = message.get('tool_calls', [])
-
-        embeds = []
-
-        if tool_calls:
-            print(f"[TOOLS] Processing {len(tool_calls)} tool calls")
-            # Execute tools and create embeds
-            for i, tool_call in enumerate(tool_calls, 1):
-                function = tool_call.get('function', {})
-                name = function.get('name', '')
-                args = function.get('arguments', {})
-
-                print(f"[TOOLS] Tool {i}/{len(tool_calls)}: {name}")
-                print(f"[TOOLS] Raw arguments: {args}")
-
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                        print(f"[TOOLS] Parsed arguments: {args}")
-                    except Exception as e:
-                        print(f"[TOOLS] Failed to parse arguments: {e}")
-                        args = {}
-
-                # Execute tool
-                if name in TOOL_FUNCTIONS:
-                    print(f"[TOOLS] Executing {name} with args: {args}")
-                    start_time = time.time()
-                    try:
-                        result = await TOOL_FUNCTIONS[name](**args)
-                        execution_time = time.time() - start_time
-                        print(f"[TOOLS] {name} completed in {execution_time:.2f}s")
-                        print(f"[TOOLS] Result: {str(result)[:200]}{'...' if len(str(result)) > 200 else ''}")
-                    except Exception as e:
-                        execution_time = time.time() - start_time
-                        print(f"[TOOLS] {name} failed after {execution_time:.2f}s: {e}")
-                        result = {"error": f"Tool execution failed: {str(e)}"}
-
-                    # Handle web search with pagination
-                    if name == 'web_search' and not result.get('error'):
-                        results = result.get('results', [])
-                        if results:
-                            # Create pagination view for search results
-                            def format_search_result(item, idx):
-                                return f"**{idx + 1}. {item.get('title', 'No title')[:80]}**\n{item.get('snippet', 'No description')[:200]}\n🔗 [Visit]({item.get('link', '')})\n"
-
-                            view = PaginationView(
-                                items=results,
-                                title=f"🔍 Search Results for: {result.get('query', '')}",
-                                current_page=1,
-                                items_per_page=3,  # 3 results per page
-                                color=0x00ff00,
-                                item_formatter=format_search_result
-                            )
-
-                            embed = view.create_embed_for_page(1)
-                            view.update_buttons()
-                            embeds.append((embed, view))  # Store as tuple with view
-                        else:
-                            # No results found
-                            embed = discord.Embed(
-                                title="🔍 Search Results",
-                                description=f"No results found for: **{result.get('query', '')}**",
-                                color=0xff9900
-                            )
-                            embeds.append((embed, None))
-                    else:
-                        # Handle other tools with regular embeds
-                        embed = self.create_tool_embed(name, result)
-                        if embed:
-                            embeds.append((embed, None))  # Store as tuple without view
-                else:
-                    print(f"[TOOLS] Unknown tool: {name}")
-                    embed = discord.Embed(
-                        title=f"{name} Error",
-                        description=f"Unknown tool: {name}",
-                        color=0xff0000
-                    )
-                    embeds.append((embed, None))
-
-        return content, embeds
-
-    def create_tool_embed(self, tool_name: str, result: Dict) -> Optional[discord.Embed]:
-        """Create Discord embed for tool results"""
-        if result.get('error'):
-            return discord.Embed(
-                title=f"{tool_name.title()} Error",
-                description=result['error'],
-                color=0xff0000
-            )
-
-        if tool_name == 'web_search':
-            embed = discord.Embed(
-                title="🔍 Search Results",
-                description=f"Found {len(result.get('results', []))} results for: **{result.get('query', '')}**",
-                color=0x00ff00
-            )
-
-            for i, item in enumerate(result.get('results', [])[:5], 1):
-                embed.add_field(
-                    name=f"{i}. {item.get('title', 'No title')[:100]}",
-                    value=f"{item.get('snippet', 'No description')[:150]}\n[🔗 Visit]({item.get('link', '')})",
-                    inline=False
-                )
-            return embed
-
-        elif tool_name == 'web_scrape':
-            embed = discord.Embed(
-                title="📄 Scraped Content",
-                description=f"Content from: {result.get('url', '')}",
-                color=0x0099ff
-            )
-
-            content = result.get('content', '')[:1000]
-            if len(result.get('content', '')) > 1000:
-                content += "..."
-
-            embed.add_field(
-                name="Content",
-                value=content,
-                inline=False
-            )
-            return embed
-
-        elif tool_name == 'calculate':
-            embed = discord.Embed(
-                title="🧮 Calculation",
-                color=0xff9900
-            )
-            embed.add_field(
-                name="Expression",
-                value=f"`{result.get('expression', '')}`",
-                inline=False
-            )
-            embed.add_field(
-                name="Result",
-                value=f"**{result.get('result', '')}**",
-                inline=False
-            )
-            return embed
-
-        elif tool_name == 'get_time':
-            embed = discord.Embed(
-                title="Current Time",
-                color=0x9900ff
-            )
-            embed.add_field(
-                name="Time",
-                value=result.get('current_time', ''),
-                inline=True
-            )
-            embed.add_field(
-                name="Date", 
-                value=result.get('current_date', ''),
-                inline=True
-            )
-            embed.add_field(
-                name="Timezone",
-                value=result.get('timezone', 'Unknown'),
-                inline=True
-            )
-            return embed
-
-        elif tool_name == 'get_weather':
-            embed = discord.Embed(
-                title="Weather Report",
-                description=f"Current weather for **{result.get('city', 'Unknown')}**",
-                color=0x87ceeb
-            )
-            embed.add_field(
-                name="Temperature",
-                value=result.get('temperature', 'N/A'),
-                inline=True
-            )
-            embed.add_field(
-                name="Condition",
-                value=result.get('condition', 'N/A'),
-                inline=True
-            )
-            embed.add_field(
-                name="Wind",
-                value=f"{result.get('wind_speed', 'N/A')} @ {result.get('wind_direction', 'N/A')}",
-                inline=True
-            )
-            return embed
-
-        elif tool_name == 'news_search':
-            embed = discord.Embed(
-                title="News Results",
-                description=f"Found {len(result.get('results', []))} news articles for: **{result.get('query', '')}**",
-                color=0xff4444
-            )
-
-            for i, item in enumerate(result.get('results', [])[:5], 1):
-                embed.add_field(
-                    name=f"{i}. {item.get('title', 'No title')[:60]}...",
-                    value=f"[Read more]({item.get('link', '#')})\n{item.get('snippet', 'No snippet')[:100]}...\n*{item.get('date', 'No date')}*",
-                    inline=False
-                )
-            return embed
-
-        return None
-
-    def apply_anti_repetition(self, response: str, history: List[Dict]) -> str:
-        """Apply anti-repetition logic"""
-        if len(history) < 2:
-            return response
-
-        # Get recent responses
-        recent_responses = [turn.get('assistant', '') for turn in history[-3:]]
-
-        # Simple similarity check
-        response_words = set(response.lower().split())
-
-        for prev_response in recent_responses:
-            prev_words = set(prev_response.lower().split())
-
-            if len(response_words) > 0 and len(prev_words) > 0:
-                overlap = len(response_words.intersection(prev_words))
-                similarity = overlap / len(response_words.union(prev_words))
-
-                if similarity > 0.7:  # High similarity
-                    response += " (Let me know if you'd like me to approach this differently.)"
-                    break
-
-        return response
-
-
-# =============================================================================
-# MODEL SELECTION VIEW
-# =============================================================================
-
-class ModelSelectView(discord.ui.View):
-    """Enhanced model selection with type switching and pagination"""
-
-    def __init__(self, models, bot, model_type="main", page=1):
-        super().__init__(timeout=120)  # Extended timeout for model switching
-        self.bot = bot
-        self.all_models = models
-        self.model_type = model_type
-        self.page = page
-        self.models_per_page = 20  # Leave room for type selector
-
-        # Model categorization based on common patterns
-        self.model_categories = {
-            "main": self.categorize_main_models(models),
-            "vision": self.categorize_vision_models(models),
-            "analysis": self.categorize_analysis_models(models),
-            "code": self.categorize_code_models(models),
-            "embedding": self.categorize_embedding_models(models)
-        }
-
-        self.current_models = self.model_categories.get(model_type, models)
-        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
-
-        self.setup_view()
-
-    def categorize_main_models(self, models):
-        """Categorize main chat/LLM models"""
-        main_keywords = ['llama', 'qwen', 'mistral', 'gemma', 'phi', 'neural', 'instruct', 'chat', 'subsect']
-        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision']
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
-        embed_keywords = ['embed', 'nomic']
-
-        main_models = []
-        for model in models:
-            model_lower = model.lower()
-            # Exclude specialized models
-            if any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
-                continue
-            # Include main chat models
-            if any(kw in model_lower for kw in main_keywords) or not any(kw in model_lower for kw in vision_keywords + code_keywords + embed_keywords):
-                main_models.append(model)
-
-        return main_models or models[:10]  # Fallback to first 10 if no matches
-
-    def categorize_vision_models(self, models):
-        """Categorize vision/multimodal models"""
-        vision_keywords = ['vision', 'llava', 'moondream', 'granite3.2-vision', 'minicpm', 'cogvlm']
-        return [m for m in models if any(kw in m.lower() for kw in vision_keywords)]
-
-    def categorize_analysis_models(self, models):
-        """Categorize analysis/reasoning models"""
-        analysis_keywords = ['qwen', 'llama', 'mistral', 'gemma', 'phi', 'reasoning', 'think']
-        vision_keywords = ['vision', 'llava', 'moondream']
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder']
-
-        analysis_models = []
-        for model in models:
-            model_lower = model.lower()
-            # Include reasoning models but exclude vision/code
-            if any(kw in model_lower for kw in analysis_keywords) and not any(kw in model_lower for kw in vision_keywords + code_keywords):
-                analysis_models.append(model)
-
-        return analysis_models or models[:5]  # Fallback
-
-    def categorize_code_models(self, models):
-        """Categorize code generation models"""
-        code_keywords = ['code', 'coder', 'deepseek', 'starcoder', 'codellama', 'granite-code']
-        return [m for m in models if any(kw in m.lower() for kw in code_keywords)]
-
-    def categorize_embedding_models(self, models):
-        """Categorize embedding models"""
-        embed_keywords = ['embed', 'nomic', 'bge', 'e5']
-        return [m for m in models if any(kw in m.lower() for kw in embed_keywords)]
-
-    def setup_view(self):
-        """Setup the view with model type selector, models dropdown, and navigation"""
-        self.clear_items()
-
-        # Model type selector (first row)
-        type_options = []
-        type_descriptions = {
-            "main": f"Main Chat Models ({len(self.model_categories['main'])})",
-            "vision": f"Vision/Multimodal ({len(self.model_categories['vision'])})",
-            "analysis": f"Analysis/Reasoning ({len(self.model_categories['analysis'])})",
-            "code": f"Code Generation ({len(self.model_categories['code'])})",
-            "embedding": f"Embedding Models ({len(self.model_categories['embedding'])})"
-        }
-
-        for model_type, description in type_descriptions.items():
-            if self.model_categories[model_type]:  # Only show if models exist
-                type_options.append(discord.SelectOption(
-                    label=description,
-                    value=model_type,
-                    default=(model_type == self.model_type)
-                ))
-
-        if type_options:
-            type_select = discord.ui.Select(
-                placeholder="Select model type...",
-                options=type_options,
-                row=0
-            )
-            type_select.callback = self.type_callback
-            self.add_item(type_select)
-
-        # Models dropdown (second row)
-        start_idx = (self.page - 1) * self.models_per_page
-        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
-        page_models = self.current_models[start_idx:end_idx]
-
-        if page_models:
-            model_options = []
-            for model in page_models:
-                # Get current model for this type
-                if self.model_type == "main":
-                    current_model = getattr(self.bot, 'current_model', '')
-                elif self.model_type == "vision":
-                    current_model = getattr(self.bot, 'vision_model', '')
-                else:
-                    current_model = getattr(self.bot, 'current_model', '')
-
-                display_name = model if len(model) <= 90 else model[:87] + "..."
-                model_options.append(discord.SelectOption(
-                    label=display_name,
-                    description="Currently selected" if model == current_model else "Select this model",
-                    value=model,
-                    default=(model == current_model)
-                ))
-
-            model_select = discord.ui.Select(
-                placeholder=f"Choose {self.model_type} model... (Page {self.page}/{self.total_pages})",
-                options=model_options,
-                row=1
-            )
-            model_select.callback = self.model_callback
-            self.add_item(model_select)
-
-        # Add navigation buttons if multiple pages (third row)
-        if self.total_pages > 1:
-            # Previous button
-            prev_button = discord.ui.Button(
-                label="◀️ Previous",
-                style=discord.ButtonStyle.grey,
-                disabled=(self.page <= 1),
-                row=2
-            )
-            prev_button.callback = self.previous_page
-            self.add_item(prev_button)
-
-            # Page indicator
-            page_button = discord.ui.Button(
-                label=f"Page {self.page}/{self.total_pages}",
-                style=discord.ButtonStyle.blurple,
-                disabled=True,
-                row=2
-            )
-            self.add_item(page_button)
-
-            # Next button
-            next_button = discord.ui.Button(
-                label="Next ▶️",
-                style=discord.ButtonStyle.grey,
-                disabled=(self.page >= self.total_pages),
-                row=2
-            )
-            next_button.callback = self.next_page
-            self.add_item(next_button)
-
-    async def type_callback(self, interaction: discord.Interaction):
-        """Handle model type selection"""
-        selected_type = interaction.data['values'][0]
-
-        # Update model type and reset to page 1
-        self.model_type = selected_type
-        self.current_models = self.model_categories.get(selected_type, self.all_models)
-        self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
-        self.page = 1
-
-        # Rebuild view
-        self.setup_view()
-        embed = self.create_embed()
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def model_callback(self, interaction: discord.Interaction):
-        """Handle model selection"""
-        selected_model = interaction.data['values'][0]
-
-        # Update the appropriate model type on the bot
-        if self.model_type == "main":
-            self.bot.current_model = selected_model
-        elif self.model_type == "vision":
-            self.bot.vision_model = selected_model
-        else:
-            self.bot.current_model = selected_model
-
-        embed = discord.Embed(
-            title="✅ Model Updated",
-            description=f"{self.model_type.title()} model changed to: `{selected_model}`",
-            color=0x00ff00
-        )
-
-        await interaction.response.edit_message(embed=embed, view=None)
-        print(f"[CONFIG] {self.model_type.title()} model changed to: {selected_model}")
-
-    async def previous_page(self, interaction: discord.Interaction):
-        """Handle previous page button"""
-        if self.page > 1:
-            self.page -= 1
-            self.setup_view()
-            embed = self.create_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-
-    async def next_page(self, interaction: discord.Interaction):
-        """Handle next page button"""
-        if self.page < self.total_pages:
-            self.page += 1
-            self.setup_view()
-            embed = self.create_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-
-    def create_embed(self):
-        """Create the model selection embed"""
-        if self.model_type == "main":
-            current_model = getattr(self.bot, 'current_model', 'Unknown')
-        elif self.model_type == "vision":
-            current_model = getattr(self.bot, 'vision_model', 'Unknown')
-        else:
-            current_model = getattr(self.bot, 'current_model', 'Unknown')
-
-        start_idx = (self.page - 1) * self.models_per_page
-        end_idx = min(start_idx + self.models_per_page, len(self.current_models))
-
-        embed = discord.Embed(
-            title=f"🤖 Select {self.model_type.title()} Model",
-            description=f"**Current {self.model_type} model:** `{current_model}`\n\n"
-                       f"**Available {self.model_type} models:** {len(self.current_models)}\n"
-                       f"**Showing:** {start_idx + 1}-{end_idx} of {len(self.current_models)}\n\n"
-                       f"1️⃣ Select model type from first dropdown\n"
-                       f"2️⃣ Choose specific model from second dropdown",
-            color=0x00ff00
-        )
-
-        # Add model type descriptions
-        type_descriptions = {
-            "main": "💬 Primary chat and conversation model",
-            "vision": "👁️ Image analysis and multimodal tasks",
-            "analysis": "🧠 User behavior analysis and insights",
-            "code": "💻 Code generation and programming help",
-            "embedding": "🔍 Text embedding and similarity search"
-        }
-
-        if self.model_type in type_descriptions:
-            embed.add_field(
-                name=f"{self.model_type.title()} Models",
-                value=type_descriptions[self.model_type],
-                inline=False
-            )
-
-        embed.set_footer(text="💡 Select a model type first, then choose from the available models")
-        return embed
-
-
-# =============================================================================
-# COMMAND COG
-# =============================================================================
-
-class BotCommands(commands.Cog):
-    """Bot commands organized as a Cog"""
-    
-    def __init__(self, bot):
-        self.bot = bot
-    
-    @commands.command(name='bothelp')
-    async def help_command(self, ctx):
-        """Show available commands"""
-        embed = discord.Embed(title="🎭 Hikari Commands", description="Available commands:", color=0x9966cc)
-        embed.add_field(name="General", value="`!ping` - Test\n`!bothelp` - This help", inline=False)
-        embed.add_field(name="Model", value="`!model` - Show models\n`!status` - Bot status", inline=False)
-        embed.add_field(name="Memory", value="`!clear` - Clear history\n`!memory` - Memory stats", inline=False)
-        embed.add_field(name="POML", value="`!poml` - POML status\n`!clearcache` - Clear POML cache", inline=False)
-        embed.add_field(name="Emotional Memory", value="`!emotion` - Show emotional profile\n`!memories` - Show memories\n`!emotionstats` - System stats", inline=False)
-        embed.add_field(name="Vector Tool Knowledge", value="`!toolsearch` - Search tool knowledge\n`!toolstats` - Tool knowledge stats", inline=False)
-        embed.add_field(name="Sleep Agent", value="`!sleepagent` - Show sleep agent status\n`!sleepagent @user` - User memory details", inline=False)
-        await ctx.send(embed=embed)
-    
-    @commands.command(name='memory')
-    async def memory_stats(self, ctx):
-        """Show conversation memory statistics"""
-        channel_id = str(ctx.channel.id)
-        stats = self.bot.memory.get_memory_stats(channel_id)
-        context = self.bot.memory.get_conversation_context(channel_id)
-        
-        embed = discord.Embed(title="🧠 Conversation Memory Stats", color=0x9966cc)
-        embed.add_field(name="Total Messages", value=f"{stats['total_messages']}", inline=True)
-        embed.add_field(name="User Messages", value=f"{stats['user_messages']}", inline=True) 
-        embed.add_field(name="Bot Messages", value=f"{stats['bot_messages']}", inline=True)
-        embed.add_field(name="Context Window", value=f"{stats['recent_context_messages']}/8 messages", inline=True)
-        embed.add_field(name="Has Summary", value="✅" if stats['has_summary'] else "❌", inline=True)
-        embed.add_field(name="Context Tokens", value=f"~{stats['estimated_context_tokens']}", inline=True)
-        embed.add_field(name="Memory Efficiency", value=f"{stats['memory_efficiency']:.1%}", inline=True)
-        
-        if context.summary:
-            embed.add_field(name="Summary", value=context.summary[:100] + "..." if len(context.summary) > 100 else context.summary, inline=False)
-            
-        await ctx.send(embed=embed)
-    
-    @commands.command(name='sleepagent')
-    async def sleep_agent_status(self, ctx):
-        """Show sleep agent status and memory information"""
-        if not self.bot.sleep_agent:
-            embed = discord.Embed(title="😴 Sleep Agent Status", description="❌ Sleep Agent not available", color=0xff6666)
-            await ctx.send(embed=embed)
-            return
-        
-        # Get sleep agent status
-        system_status = self.bot.sleep_agent.get_system_status()
-        
-        embed = discord.Embed(title="😴 Sleep Agent Status", color=0x9966cc)
-        embed.add_field(name="Status", value="✅ Active", inline=True)
-        embed.add_field(name="Total Users", value=f"{system_status['total_users']}", inline=True)
-        embed.add_field(name="Total Memory Blocks", value=f"{system_status['total_memory_blocks']}", inline=True)
-        embed.add_field(name="Active Users", value=f"{system_status['active_users']}", inline=True)
-        
-        # Add configuration info
-        config = system_status['config']
-        embed.add_field(name="Trigger Messages", value=f"{config['trigger_after_messages']}", inline=True)
-        embed.add_field(name="Trigger Idle Time", value=f"{config['trigger_after_idle_minutes']} minutes", inline=True)
-        embed.add_field(name="Thinking Iterations", value=f"{config['thinking_iterations']}", inline=True)
-        embed.add_field(name="FAISS Enabled", value="✅" if config['enable_faiss'] else "❌", inline=True)
-        
-        # Add user-specific info if mentioned
-        if ctx.message.mentions:
-            user_id = str(ctx.message.mentions[0].id)
-            user_summary = self.bot.sleep_agent.get_user_memory_summary(user_id)
-            
-            embed.add_field(name=f"User {ctx.message.mentions[0].display_name}", value="", inline=False)
-            embed.add_field(name="Memory Blocks", value=f"{user_summary['block_count']}", inline=True)
-            embed.add_field(name="Last Activity", value=f"<t:{int(user_summary['last_activity'])}:R>", inline=True)
-            embed.add_field(name="Message Count", value=f"{user_summary['message_count']}", inline=True)
-            
-            if 'faiss_memory' in user_summary:
-                faiss_stats = user_summary['faiss_memory']
-                embed.add_field(name="FAISS Vectors", value=f"{faiss_stats['total_vectors']}", inline=True)
-                embed.add_field(name="FAISS Type", value=f"{faiss_stats['index_type']}", inline=True)
-        
-        await ctx.send(embed=embed)
-    
-    @commands.command()
-    async def ping(self, ctx):
-        """Simple test command"""
-        await ctx.send("Pong!")
-
-    @commands.command(name='model')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def model_select(self, ctx):
-        """Select the main LLM model from available Ollama models with dropdown interface"""
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get('http://127.0.0.1:11434/api/tags') as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        models = [model['name'] for model in data.get('models', [])]
-                    else:
-                        await ctx.send("❌ Failed to connect to Ollama. Make sure it's running.")
-                        return
-
-            if not models:
-                await ctx.send("❌ No Ollama models found. Please install some models first.")
-                return
-
-            # Create dropdown view
-            view = ModelSelectView(models, self.bot)
-            embed = view.create_embed()
-
-            await ctx.send(embed=embed, view=view)
-
-        except Exception as e:
-            print(f"❌ Error in model command: {e}")
-            await ctx.send("❌ Error getting model list. Make sure Ollama is running.")
-
-    @commands.command(name='status')
-    async def status_command(self, ctx):
-        """Show bot status"""
-        embed = discord.Embed(title="🤖 Bot Status", color=0x0099ff)
-        embed.add_field(name="Current Model", value=f"`{self.bot.current_model}`", inline=False)
-        embed.add_field(name="Vision Model", value=f"`{self.bot.vision_model}`", inline=False)
-        
-        # AI Intent Classification status
-        if self.bot.intent_classifier:
-            embed.add_field(name="AI Intent Classification", value="✅ Enabled (GPU/CPU)", inline=False)
-            
-            # Check if torch is available to show GPU status
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    gpu_name = torch.cuda.get_device_name(0)
-                    embed.add_field(name="GPU Status", value=f"✅ CUDA: {gpu_name}", inline=False)
-                else:
-                    embed.add_field(name="GPU Status", value="❌ CPU Only", inline=False)
-            except ImportError:
-                pass
-        else:
-            embed.add_field(name="AI Intent Classification", value="❌ Disabled (fallback mode)", inline=False)
-            
-        await ctx.send(embed=embed)
-
-    @commands.command(name='clear')
-    async def clear_history(self, ctx):
-        """Clear conversation history using modern memory system"""
-        channel_id = str(ctx.channel.id)
-        
-        # Get stats before clearing
-        stats = self.bot.memory.get_memory_stats(channel_id)
-        
-        # Clear memory
-        self.bot.memory.clear_channel_history(channel_id)
-        
-        embed = discord.Embed(title="🧹 Memory Cleared", color=0x00ff00)
-        embed.add_field(name="Cleared", value=f"{stats['total_messages']} messages", inline=True)
-        embed.add_field(name="User Messages", value=f"{stats['user_messages']}", inline=True)
-        embed.add_field(name="Bot Messages", value=f"{stats['bot_messages']}", inline=True)
-        
-        await ctx.send(embed=embed)
-
-    @commands.command(name='mood')
-    async def check_mood(self, ctx, user: discord.Member = None):
-        """Check mood points for a user"""
-        target_user = user or ctx.author
-        user_id = str(target_user.id)
-        mood_points = self.bot.get_user_mood(user_id)
-        tone = self.bot.get_tone_from_mood(mood_points)
-
-        embed = discord.Embed(
-            title=f"🎭 {target_user.display_name}'s Mood",
-            color=0xff69b4
-        )
-
-        embed.add_field(
-            name="💝 Mood Points",
-            value=f"{mood_points}/10",
-            inline=True
-        )
-
-        embed.add_field(
-            name="😊 Current Tone",
-            value=tone.replace('-', ' ').title(),
-            inline=True
-        )
-
-        # Add mood description
-        mood_descriptions = {
-            "dere-hot": "💕 Overflowing sweetness!",
-            "cheerful": "😊 Happy and playful",
-            "soft-tsun": "😌 Mildly tsundere",
-            "classic-tsun": "😤 Traditional tsundere",
-            "grumpy-tsun": "😠 Annoyed but helpful",
-            "cold-tsun": "🥶 Cold but not mean",
-            "explosive-tsun": "💥 Very angry tsundere!"
-        }
-
-        embed.add_field(
-            name="📝 Description",
-            value=mood_descriptions.get(tone, "🤔 Neutral"),
-            inline=False
-        )
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='poml')
-    async def poml_status(self, ctx):
-        """Show POML status and templates"""
-        embed = discord.Embed(
-            title="🎭 POML Status",
-            color=0xff69b4
-        )
-
-        if POML_AVAILABLE:
-            embed.add_field(
-                name="✅ POML Available",
-                value="Microsoft's Prompt Orchestration Markup Language is active",
-                inline=False
-            )
-
-            embed.add_field(
-                name="📁 Loaded Templates",
-                value=f"{len(self.bot.poml_templates)} templates: {', '.join(self.bot.poml_templates.keys())}",
-                inline=False
-            )
-
-            embed.add_field(
-                name="🎯 Features",
-                value="• Structured JSON responses\n• Dynamic mood system\n• Context-aware prompts\n• Tool schema validation",
-                inline=False
-            )
-            
-            # Add cache statistics
-            cache_stats = self.bot.poml_cache.get_cache_stats()
-            embed.add_field(
-                name="🚀 Cache Performance",
-                value=f"• Cached Results: {cache_stats['cached_results']}\n"
-                      f"• Cache Hits: {cache_stats['cache_hits']}\n"
-                      f"• Cache Misses: {cache_stats['cache_misses']}\n"
-                      f"• Hit Rate: {cache_stats['hit_rate']:.1%}",
-                inline=False
-            )
-            
-            # Add performance impact info
-            embed.add_field(
-                name="⚡ Performance Impact",
-                value="• Cache HIT: ~0.1s (eliminates 1.2-1.4s delay)\n"
-                      f"• Cache MISS: ~1.2-1.4s (fallback processing)\n"
-                      f"• Total time saved: ~{cache_stats['cache_hits'] * 1.3:.1f}s",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="❌ POML Not Available",
-                value="Install with: `pip install poml`",
-                inline=False
-            )
-
-        await ctx.send(embed=embed)
-
-    @commands.command(name='vision_model')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def change_vision_model(self, ctx, *, model_name: str = None):
-        """Change the vision analysis model"""
-        if not model_name:
-            embed = discord.Embed(
-                title="👁️ Current Vision Model",
-                description=f"Current vision model: `{self.bot.vision_model}`",
-                color=0x00ff00
-            )
-            await ctx.send(embed=embed)
-            return
-
-        try:
-            # Test the vision model with a simple prompt
-            from ollama import AsyncClient
-            test_client = AsyncClient()
-
-            # Create a simple test (no image needed for model validation)
-            test_response = await test_client.chat(
-                model=model_name,
-                messages=[{"role": "user", "content": "Hello, can you see images?"}]
-            )
-
-            self.bot.vision_model = model_name
-
-            embed = discord.Embed(
-                title="👁️ Vision Model Changed",
-                description=f"Successfully changed vision model to: `{model_name}`",
-                color=0x00ff00
-            )
-            await ctx.send(embed=embed)
-            print(f"[CONFIG] Vision model changed to: {model_name}")
-
-        except Exception as e:
-            embed = discord.Embed(
-                title="Vision Model Test Failed",
-                description=f"Failed to test vision model `{model_name}`: {str(e)}",
-                color=0xff0000
-            )
-            await ctx.send(embed=embed)
-
-    @commands.command(name='updatestatus')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def update_status_command(self, ctx):
-        """Manually update the bot's status"""
-        try:
-            await ctx.send("Updating status...")
-            await self.bot.update_dynamic_status()
-            await ctx.send("Status updated!")
-        except Exception as e:
-            await ctx.send(f"Failed to update status: {str(e)}")
-
-    @commands.command(name='clearcache')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def clear_poml_cache(self, ctx):
-        """Clear POML template cache"""
-        try:
-            cache_stats = self.bot.poml_cache.get_cache_stats()
-            self.bot.poml_cache.clear_cache()
-            
-            embed = discord.Embed(
-                title="🧹 POML Cache Cleared",
-                description="Template cache has been cleared and will be rebuilt on next use",
-                color=0x00ff00
-            )
-            embed.add_field(
-                name="Previous Cache Stats",
-                value=f"• Cached Templates: {cache_stats['cached_results']}\n"
-                      f"• Cache Hits: {cache_stats['cache_hits']}\n"
-                      f"• Cache Misses: {cache_stats['cache_misses']}\n"
-                      f"• Hit Rate: {cache_stats['hit_rate']:.1%}",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
-        except Exception as e:
-            await ctx.send(f"Failed to clear cache: {str(e)}")
-
-    @commands.command(name='emotion')
-    async def emotional_profile(self, ctx, user: discord.Member = None):
-        """Show emotional profile for a user (or yourself if no user specified)"""
-        if not self.bot.emotional_memory:
-            await ctx.send("❌ Emotional Memory System is not available")
-            return
-            
-        target_user = user or ctx.author
-        user_id = str(target_user.id)
-        
-        try:
-            profile = self.bot.emotional_memory.get_user_profile(user_id)
-            
-            embed = discord.Embed(
-                title=f"💝 Emotional Profile: {profile.username}",
-                color=0xff69b4
-            )
-            
-            # Basic info
-            embed.add_field(
-                name="Current Mood",
-                value=f"😊 {profile.current_mood} ({profile.mood_points:.1f})",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Relationship Level",
-                value=f"🤝 {profile.relationship_level.replace('_', ' ').title()}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Trust Score",
-                value=f"🔒 {profile.trust_score:.1%}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Familiarity",
-                value=f"👥 {profile.familiarity_level:.1%}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Conversations",
-                value=f"💬 {profile.conversation_count}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Last Interaction",
-                value=f"⏰ {datetime.fromtimestamp(profile.last_interaction).strftime('%Y-%m-%d %H:%M')}",
-                inline=True
-            )
-            
-            # Personality traits
-            traits_text = "\n".join([f"• {trait.replace('_', ' ').title()}: {value:.1%}" 
-                                   for trait, value in profile.personality_traits.items()])
-            embed.add_field(
-                name="Personality Traits",
-                value=traits_text,
-                inline=False
-            )
-            
-            # Memory stats
-            embed.add_field(
-                name="Memories Stored",
-                value=f"🧠 {len(profile.memories)} memories",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to get emotional profile: {str(e)}")
-
-    @commands.command(name='memories')
-    async def show_memories(self, ctx, user: discord.Member = None, query: str = ""):
-        """Show memories for a user (or yourself if no user specified)"""
-        if not self.bot.emotional_memory:
-            await ctx.send("❌ Emotional Memory System is not available")
-            return
-            
-        target_user = user or ctx.author
-        user_id = str(target_user.id)
-        
-        try:
-            if query:
-                memories = self.bot.emotional_memory.get_relevant_memories(user_id, query, limit=10)
-                title = f"🔍 Memories for '{query}'"
-            else:
-                profile = self.bot.emotional_memory.get_user_profile(user_id)
-                memories = profile.memories[-10:]  # Last 10 memories
-                title = f"🧠 Recent Memories"
-            
-            if not memories:
-                await ctx.send(f"❌ No memories found for {target_user.display_name}")
-                return
-            
-            # Create paginated embed
-            embed, view = self.bot.create_paginated_embed(
-                title=title,
-                items=memories,
-                items_per_page=5,
-                color=0xff69b4,
-                item_formatter=lambda memory, idx: (
-                    f"**{memory.memory_type}** ({memory.importance_score:.1%})\n"
-                    f"💭 {memory.content[:100]}{'...' if len(memory.content) > 100 else ''}\n"
-                    f"😊 {memory.emotional_context} • {datetime.fromtimestamp(memory.timestamp).strftime('%m/%d %H:%M')}"
-                )
-            )
-            
-            if view:
-                await ctx.send(embed=embed, view=view)
-            else:
-                await ctx.send(embed=embed)
-                
-        except Exception as e:
-            await ctx.send(f"❌ Failed to get memories: {str(e)}")
-
-    @commands.command(name='emotionstats')
-    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
-    async def emotional_system_stats(self, ctx):
-        """Show emotional memory system statistics"""
-        if not self.bot.emotional_memory:
-            await ctx.send("❌ Emotional Memory System is not available")
-            return
-            
-        try:
-            stats = self.bot.emotional_memory.get_system_stats()
-            
-            embed = discord.Embed(
-                title="💝 Emotional Memory System Stats",
-                color=0xff69b4
-            )
-            
-            embed.add_field(
-                name="Total Users",
-                value=f"👥 {stats['total_users']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Total Memories",
-                value=f"🧠 {stats['total_memories']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Storage Directory",
-                value=f"📁 {stats['storage_directory']}",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="Last Save",
-                value=f"⏰ {datetime.fromtimestamp(stats['last_save']).strftime('%Y-%m-%d %H:%M:%S')}",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            await ctx.send(f"❌ Failed to get system stats: {str(e)}")
-
-    
-       
-    def get_stats(self) -> dict:
-        """Get statistics about the knowledge base"""
-        return {
-            'total_items': len(self.knowledge_items),
-            'storage_dir': self.save_dir,
-            'index_dimension': self.dimension,
-            'model_loaded': self.model is not None,
-            'index_loaded': self.index is not None
-        }
-    
-    def get_persistent_state(self) -> dict:
-        """Get state for persistence"""
-        return {
-            'save_dir': self.save_dir,
-            'knowledge_items': self.knowledge_items
-        }
-    
-    def load_persistent_state(self, state: dict) -> None:
-        """Load state from persistence"""
-        if 'save_dir' in state:
-            self.save_dir = state['save_dir']
-        if 'knowledge_items' in state:
-            self.knowledge_items = state['knowledge_items']
-            # Rebuild FAISS index if we have items
-            if self.model and self.knowledge_items:
-                try:
-                    self.index = faiss.IndexFlatL2(self.dimension)
-                    for item in self.knowledge_items:
-                        if 'content_text' in item and 'user_query' in item:
-                            embedding_text = f"Query: {item['user_query']}\nResults: {item['content_text']}"
-                            embedding = self.model.encode([embedding_text])[0]
-                            self.index.add(np.array([embedding], dtype=np.float32))
-                    print(f"🧠 Rebuilt FAISS index with {len(self.knowledge_items)} items")
-                except Exception as e:
-                    print(f"⚠️ Error rebuilding FAISS index: {e}")
-
-# =============================================================================
-# MAIN BOT CLASS
-# =============================================================================
-
-class OptimizedDiscordBot(commands.Bot):
-    """Streamlined Discord bot with all optimizations + POML support"""
-
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.guilds = True
-        intents.presences = True  # Required to see online status
-        intents.members = True    # Required to list all members
-        super().__init__(command_prefix='!', intents=intents)
-
-        # Initialize components
-        self.ollama = OptimizedOllamaClient()
-        self.current_model = 'hf.co/subsectmusic/qwriko3-4b-instruct-2507:Q4_K_M'
-        self.vision_model = 'granite3.2-vision:2b'  # Vision analysis model
-        
-        # Modern conversation memory management (2025)
-        self.memory = ConversationMemoryManager(
-            window_size=8,              # Keep 8 recent user messages
-            summary_threshold=25,       # Summarize after 25 messages
-            max_context_tokens=3000,    # Token limit for context
-            bot_user_id=None            # Will be set in on_ready()
-        )
-        print("[OK] Modern Conversation Memory Manager initialized")
-
-        # Emotional Memory System (2025) - NEW!
-        try:
-            from emotional_memory import EmotionalMemoryManager
-            self.emotional_memory = EmotionalMemoryManager("emotional_memory")
-            print("[OK] Emotional Memory System initialized")
-        except ImportError as e:
-            print(f"[WARNING] Emotional Memory System not available: {e}")
-            self.emotional_memory = None
-
-        # Sleep Time Agent System (2025) - NEW!
-        try:
-            from sleep_time_agent_core import SleepTimeAgentCore, AgentConfig
-            self.sleep_agent = SleepTimeAgentCore(
-                AgentConfig(
-                    trigger_after_messages=5,           # Process after 5 messages
-                    trigger_after_idle_minutes=5,      # Process after 5 minutes idle
-                    thinking_iterations=1,              # One-pass thinking
-                    model="qwen3:4b",                  # Thinking model
-                    enable_faiss=True,                  # Enable FAISS vector memory
-                    vector_dimension=384,               # Vector dimension
-                    max_vectors_per_user=1000,         # Max vectors per user
-                    similarity_threshold=0.7,           # Similarity threshold
-                    stream_thinking=True,               # Stream thinking process
-                    enable_tool_calling=True,           # Enable tool calling
-                    enable_insights=True,               # Enable insights
-                    enable_schema_tools=True            # Enable schema tools
-                )
-            )
-            print("[OK] Sleep Time Agent System initialized")
-            
-            # Sleep agent background task
-            self.sleep_agent_task = None
-            self.user_conversation_history = {}  # Track conversations per user
-            self.user_last_activity = {}         # Track last activity per user
-            
-        except ImportError as e:
-            print(f"[WARNING] Sleep Time Agent System not available: {e}")
-            self.sleep_agent = None
-
-        # POML template management with caching
-        self.poml_templates = {}
-        self.poml_cache = POMLCache()  # Pre-compiled template cache
-        self.mood_points = {}  # Per-user mood tracking
-        self.load_poml_templates()
-        
-        # AI Intent Classification
-        if AI_CLASSIFIER_AVAILABLE:
-            try:
-                self.intent_classifier = AIIntentClassifier()
-                print("[OK] AI Intent Classifier initialized")
-            except Exception as e:
-                print(f"[ERROR] Failed to initialize AI Intent Classifier: {e}")
-                self.intent_classifier = None
-        else:
-            self.intent_classifier = None
-            print("[INFO] AI Intent Classifier disabled - using fallback mood system")
-        
-        # Load persistent bot state (NEW!)
-        self.load_persistent_state()
-        
-        print("[INIT] Optimized Discord Bot initialized")
-        print(f"[CONFIG] KV Cache: {os.environ.get('OLLAMA_KV_CACHE_TYPE')}")
-        print(f"[CONFIG] Flash Attention: {os.environ.get('OLLAMA_FLASH_ATTENTION')}")
-        
-        # Debug: List all registered commands after initialization
-        print(f"[DEBUG] Registered commands: {[cmd.name for cmd in self.commands]}")
-    
-    def load_persistent_state(self):
-        """Load persistent bot state from disk"""
-        try:
-            state_file = "bot_persistent_state.json"
-            if os.path.exists(state_file):
-                with open(state_file, 'r') as f:
-                    state = json.load(f)
-                
-                # Load conversation memory state
-                if 'conversation_memory' in state:
-                    self.memory.load_persistent_state(state['conversation_memory'])
-                    print("[PERSISTENT STATE] Loaded conversation memory state")
-                
-                # Load emotional memory state
-                if self.emotional_memory and 'emotional_memory' in state:
-                    self.emotional_memory.load_persistent_state(state['emotional_memory'])
-                    print("[PERSISTENT STATE] Loaded emotional memory state")
-                
-               
-                
-                # Load mood points
-                if 'mood_points' in state:
-                    self.mood_points = state['mood_points']
-                    print(f"[PERSISTENT STATE] Loaded mood points for {len(self.mood_points)} users")
-                
-                print("[PERSISTENT STATE] Successfully loaded bot state from disk")
-            else:
-                print("[PERSISTENT STATE] No existing state file found, starting fresh")
-                
-        except Exception as e:
-            print(f"[PERSISTENT STATE ERROR] Failed to load state: {e}")
-    
-    def save_persistent_state(self):
-        """Save persistent bot state to disk"""
-        try:
-            state = {
-                'conversation_memory': self.memory.get_persistent_state(),
-                'mood_points': self.mood_points,
-                'timestamp': time.time()
-            }
-            
-            # Add emotional memory state if available
-            if self.emotional_memory:
-                state['emotional_memory'] = self.emotional_memory.get_persistent_state()
-            
-            # Add vector tool knowledge state if available
-        
-            
-            # Save to disk
-            with open("bot_persistent_state.json", 'w') as f:
-                json.dump(state, f, indent=2)
-            
-            print("[PERSISTENT STATE] Successfully saved bot state to disk")
-            
-        except Exception as e:
-            print(f"[PERSISTENT STATE ERROR] Failed to save state: {e}")
-    
-    async def setup_hook(self):
-        """Setup hook to load commands"""
-        await self.add_cog(BotCommands(self))
-        print(f"[DEBUG] Commands loaded: {[cmd.name for cmd in self.commands]}")
-    
-    async def on_command(self, ctx):
-        """Debug: Track when any command is invoked"""
-        print(f"[COMMAND] Command '{ctx.command.name}' invoked by {ctx.author.name}")
-    
-    async def on_command_error(self, ctx, error):
-        """Debug: Track command errors"""
-        print(f"[COMMAND ERROR] Command '{ctx.command}' failed: {error}")
-        await ctx.send(f"❌ Command error: {error}")
-    
-    def create_paginated_embed(self, title: str, items: list, page: int = 1, items_per_page: int = 10, 
-                              color: int = 0x00ff88, item_formatter=None) -> tuple:
-        """Universal pagination function for creating embeds with navigation"""
-        total_items = len(items)
-        total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
-        page = max(1, min(page, total_pages))
-        
-        start_idx = (page - 1) * items_per_page
-        end_idx = start_idx + items_per_page
-        page_items = items[start_idx:end_idx]
-        
-        embed = discord.Embed(
-            title=f"{title} (Page {page}/{total_pages})",
-            color=color
-        )
-        
-        if not page_items:
-            embed.description = "No items found."
-            return embed, None
-        
-        # Format items using custom formatter or default
-        if item_formatter:
-            formatted_items = [item_formatter(item, idx + start_idx) for idx, item in enumerate(page_items)]
-        else:
-            formatted_items = [str(item) for item in page_items]
-        
-        embed.description = "\n".join(formatted_items)
-        embed.set_footer(text=f"Total: {total_items} items | Page {page}/{total_pages}")
-        
-        # Create view with navigation buttons if multiple pages
-        view = None
-        if total_pages > 1:
-            view = PaginationView(items, title, page, items_per_page, color, item_formatter)
-        
-        return embed, view
-    
-    def load_poml_templates(self):
-        """Load POML templates if available - OPTIMIZED with caching"""
-        if not POML_AVAILABLE:
-            return
-
-        # Fast template loading without encoding checks
-        template_files = {
-            'personality': 'templates/personality.poml',
-            'tools': 'templates/tools.poml', 
-            'mood_system': 'templates/mood_system.poml',
-            'memory_context': 'templates/memory_context.poml'
-        }
-
-        for name, filepath in template_files.items():
-            try:
-                if os.path.exists(filepath):
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        template_content = f.read()
-                        self.poml_templates[name] = template_content
-                        
-                        # Store template hash for change detection
-                        import hashlib
-                        content_hash = hashlib.md5(template_content.encode()).hexdigest()
-                        self.poml_cache.template_hashes[name] = content_hash
-                        
-                        print(f"[OK] Loaded POML template: {name}")
-                else:
-                    print(f"[INFO] POML template file not found: {filepath}")
-            except Exception as e:
-                print(f"[ERROR] Error loading POML template {name}: {e}")
-
-    def get_user_mood(self, user_id: str) -> float:
-        """Get user's current mood points (-10 to 10)"""
-        return self.mood_points.get(user_id, 0.0)
-
-    def adjust_user_mood(self, user_id: str, user_input: str) -> Tuple[float, Optional[IntentClassification]]:
-        """Adjust user mood based on AI intent classification and input, returns (mood, classification)"""
-        current_mood = self.get_user_mood(user_id)
-        old_mood = current_mood
-        mood_change = 0
-        classification = None
-        
-        # Use AI intent classification if available
-        if self.intent_classifier:
-            try:
-                classification = self.intent_classifier.classify_message(user_input)
-                
-                # Base mood adjustment on vibe and intent
-                vibe_adjustments = {
-                    'positive': 0.8,
-                    'playful': 0.6, 
-                    'flirty': 0.7,
-                    'neutral': 0.0,
-                    'negative': -0.8,
-                    'angry': -1.2,
-                    'sarcastic': -0.3,
-                    'serious': 0.1
-                }
-                
-                # Intent-based modifiers
-                intent_modifiers = {
-                    'compliment': 1.5,  # Multiplier for compliments
-                    'complaint': -1.3,  # Multiplier for complaints
-                    'request': 0.2,     # Small positive for polite requests
-                    'question': 0.1,    # Neutral to slightly positive
-                    'casual conversation': 0.0,  # No modifier
-                    'emotional expression': 1.2  # Amplify emotional content
-                }
-                
-                # Emotional intensity scaling
-                intensity_scaling = {
-                    'high': 1.4,
-                    'medium': 1.0,
-                    'low': 0.7
-                }
-                
-                # Calculate mood change
-                base_change = vibe_adjustments.get(classification.vibe, 0.0)
-                intent_mult = intent_modifiers.get(classification.intent, 1.0)
-                intensity_mult = intensity_scaling.get(classification.emotional_intensity, 1.0)
-                
-                mood_change = base_change * intent_mult * intensity_mult
-                
-                # Cap changes to reasonable ranges
-                mood_change = max(-2.0, min(2.0, mood_change))
-                
-                current_mood = max(-10, min(10, current_mood + mood_change))
-                
-                print(f"[MOOD AI] User {user_id}: {old_mood:.1f} -> {current_mood:.1f}")
-                print(f"         Vibe: {classification.vibe}, Intent: {classification.intent}")
-                print(f"         Intensity: {classification.emotional_intensity}, Change: {mood_change:.2f}")
-                print(f"         Message Type: {classification.message_type}, Importance: {classification.importance_score:.2f}")
-                
-            except Exception as e:
-                print(f"[MOOD] AI classification failed, using fallback: {e}")
-                # Fallback to hardcoded system
-                current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
-        else:
-            # Fallback to hardcoded system
-            current_mood = self._fallback_mood_adjustment(user_id, user_input, current_mood)
-        
-        # Natural mood decay over time - slowly drift toward neutral
-        if current_mood > 0:
-            current_mood = max(0, current_mood - 0.1)
-        elif current_mood < 0:
-            current_mood = min(0, current_mood + 0.1)
-
-        self.mood_points[user_id] = current_mood
+        # Save mood changes immediately
+        if abs(current_mood - old_mood) >= 0.1:  # Save any meaningful change
+            self.save_persistent_state()
         
         # Update status if mood changed significantly
         if abs(current_mood - old_mood) >= 2:
@@ -4738,55 +2203,6 @@ class OptimizedDiscordBot(commands.Bot):
                 print(f"[WARNING] Failed to create status update task: {e}")
         
         return current_mood, classification
-    
-    def _fallback_mood_adjustment(self, user_id: str, user_input: str, current_mood: float) -> float:
-        """Fallback hardcoded mood adjustment when AI fails"""
-        # Enhanced mood adjustment logic with decimal precision
-        # Very positive words - bigger mood boost
-        very_positive = ['love', 'amazing', 'perfect', 'beautiful', 'incredible', 'wonderful']
-        # Regular positive words - standard boost  
-        positive_words = ['thanks', 'thank you', 'awesome', 'great', 'nice', 'good', 'cool', 'sweet']
-        # Mild positive - small boost
-        mild_positive = ['ok', 'fine', 'sure', 'alright', 'yeah']
-        
-        # Very negative words - bigger mood drop  
-        very_negative = ['hate', 'terrible', 'awful', 'disgusting', 'worst']
-        # Regular negative words - standard drop
-        negative_words = ['stupid', 'dumb', 'annoying', 'bad', 'sucks', 'boring']
-        # Mild negative - small drop  
-        mild_negative = ['meh', 'whatever', 'eh', 'nah']
-
-        input_lower = user_input.lower()
-        old_mood = current_mood
-        mood_change = 0
-        
-        # Simple hardcoded word detection
-        if any(word in input_lower for word in very_positive):
-            mood_change = 1.5
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very positive: {user_input[:50]})")
-        elif any(word in input_lower for word in positive_words):
-            mood_change = 0.8
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (positive: {user_input[:50]})")
-        elif any(word in input_lower for word in mild_positive):
-            mood_change = 0.3
-            current_mood = min(10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild positive: {user_input[:50]})")
-        elif any(word in input_lower for word in very_negative):
-            mood_change = -1.5
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (very negative: {user_input[:50]})")
-        elif any(word in input_lower for word in negative_words):
-            mood_change = -0.8
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (negative: {user_input[:50]})")
-        elif any(word in input_lower for word in mild_negative):
-            mood_change = -0.3
-            current_mood = max(-10, current_mood + mood_change)
-            print(f"[MOOD FALLBACK] User {user_id}: {old_mood} -> {current_mood:.1f} (mild negative: {user_input[:50]})")
-            
-        return current_mood
 
     def get_tone_from_mood(self, mood_points: float) -> str:
         """Convert mood points to tsundere tone"""
@@ -4887,13 +2303,50 @@ Generate ONE short status (under 30 chars):"""
             if tone is None:
                 tone = self.get_tone_from_mood(mood_points)
 
+            # Get emotional profile data for POML context
+            relationship_level = "stranger"
+            familiarity_percent = 0
+            trust_percent = 50
+            conversation_count = 0
+            last_interaction_time = "never"
+            personality_traits = "unknown"
+            
+            if hasattr(self, 'emotional_memory') and self.emotional_memory:
+                try:
+                    profile = self.emotional_memory.get_user_profile(user_id)
+                    if profile:
+                        relationship_level = profile.relationship_level.replace('_', ' ').title()
+                        familiarity_percent = int(profile.familiarity_level * 100)
+                        trust_percent = int(profile.trust_score * 100)  
+                        conversation_count = profile.conversation_count
+                        
+                        # Format last interaction time
+                        if profile.last_interaction > 0:
+                            from datetime import datetime
+                            last_interaction_time = datetime.fromtimestamp(profile.last_interaction).strftime("%b %d at %H:%M")
+                        
+                        # Format personality traits
+                        top_traits = []
+                        for trait, value in profile.personality_traits.items():
+                            if value > 0.6:  # Only show strong traits
+                                top_traits.append(f"{trait.title()}: {int(value*100)}%")
+                        personality_traits = ", ".join(top_traits[:3]) if top_traits else "developing"
+                except Exception as e:
+                    print(f"[DEBUG] Error getting emotional profile for POML: {e}")
+            
             # Create context for POML processing
             context = {
                 "username": username,
                 "user_id": user_id,
                 "mood_points": mood_points,
                 "tone": tone,
-                "user_input": user_input
+                "user_input": user_input,
+                "relationship_level": relationship_level,
+                "familiarity_percent": familiarity_percent,
+                "trust_percent": trust_percent,
+                "conversation_count": conversation_count,
+                "last_interaction_time": last_interaction_time,
+                "personality_traits": personality_traits
             }
             
             # Add memory context from sleep agent if available
@@ -5067,12 +2520,18 @@ Generate ONE short status (under 30 chars):"""
         if len(self.user_conversation_history[user_id]) > 20:
             self.user_conversation_history[user_id] = self.user_conversation_history[user_id][-20:]
         
-        # Update last activity
-        self.user_last_activity[user_id] = time.time()
+        # Update last activity (sync with sleep agent core)
+        current_time = time.time()
+        self.user_last_activity[user_id] = current_time
         
-        # Check if we should trigger processing immediately (5+ messages)
-        if len(self.user_conversation_history[user_id]) >= 5:
-            print(f"[SLEEP AGENT] User {user_id} has {len(self.user_conversation_history[user_id])} messages - triggering processing")
+        # CRITICAL: Sync with sleep agent core's activity tracking
+        if self.sleep_agent:
+            self.sleep_agent.last_activity[user_id] = current_time
+        
+        # Check if we should trigger processing based on configured message threshold
+        trigger_threshold = self.sleep_agent.config.trigger_after_messages if self.sleep_agent else 100
+        if len(self.user_conversation_history[user_id]) >= trigger_threshold:
+            print(f"[SLEEP AGENT] User {user_id} has {len(self.user_conversation_history[user_id])} messages (threshold: {trigger_threshold}) - triggering processing")
             # Create background task to process this user (non-blocking)
             task = asyncio.create_task(self._process_user_conversation_safe(user_id))
             # Don't await - let it run in background without blocking
@@ -5107,7 +2566,7 @@ Generate ONE short status (under 30 chars):"""
                 await asyncio.sleep(60)  # Continue on error
     
     async def _process_idle_users(self):
-        """Process users who have been idle for 5+ minutes"""
+        """Process users who have been idle based on configured threshold"""
         if not hasattr(self, 'sleep_agent') or not self.sleep_agent:
             return
             
@@ -5115,7 +2574,7 @@ Generate ONE short status (under 30 chars):"""
             return
             
         current_time = time.time()
-        idle_threshold = 5 * 60  # 5 minutes in seconds
+        idle_threshold = self.sleep_agent.config.trigger_after_idle_minutes * 60  # Convert minutes to seconds
         
         for user_id, last_activity in self.user_last_activity.items():
             if current_time - last_activity >= idle_threshold:
@@ -5155,6 +2614,7 @@ Generate ONE short status (under 30 chars):"""
                 print(f"[SLEEP AGENT] User {user_id} not ready for processing yet")
             else:
                 print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
+                print(f"[SLEEP AGENT DEBUG] Full result: {result}")
                 
         except Exception as e:
             print(f"[SLEEP AGENT] Error processing user {user_id}: {e}")
@@ -5205,6 +2665,7 @@ Generate ONE short status (under 30 chars):"""
                     print(f"[SLEEP AGENT] Memory updates: {result['memory_updates']}")
             else:
                 print(f"[SLEEP AGENT] Processing failed for user {user_id}: {result.get('error', 'Unknown error')}")
+                print(f"[SLEEP AGENT DEBUG] Full result: {result}")
                 
         except Exception as e:
             print(f"[SLEEP AGENT] Thread processing error for user {user_id}: {e}")
@@ -5255,7 +2716,8 @@ Generate ONE short status (under 30 chars):"""
             print(f"[TIMING] Message processing started at {start_time}")
             
             print(f"[MESSAGE] User: {message.author.display_name} ({message.author.id})")
-            print(f"[MESSAGE] Channel: #{message.channel.name} ({message.channel.id})")
+            channel_name = getattr(message.channel, 'name', 'DM')
+            print(f"[MESSAGE] Channel: #{channel_name} ({message.channel.id})")
             print(f"[MESSAGE] Guild: {message.guild.name if message.guild else 'DM'}")
             print(f"[MESSAGE] Content: {message.content}")
             
@@ -5280,14 +2742,6 @@ Generate ONE short status (under 30 chars):"""
                 
                 print(f"[MESSAGE] Cleaned content: {content}")
 
-                # Process emotional memory (NEW!) - MOVED to after POML processing to get message_classification
-                # This will be handled after we get the AI classification from adjust_user_mood
-
-                # Initialize mood variables early to ensure they're in scope for POML call
-                mood_points = 0.0
-                message_classification = None
-                tone = "neutral"  # Default tone until mood is calculated
-
                 # Check for image attachments and modify content (like merged bot)
                 if message.attachments:
                     image_attachments = [att for att in message.attachments if att.content_type and att.content_type.startswith('image/')]
@@ -5307,7 +2761,31 @@ Generate ONE short status (under 30 chars):"""
                             print(f"🖼️ Additional images: {', '.join(image_urls[1:])}")
                             content += f" (and {len(image_attachments)-1} more images)"
 
-                # Try POML first
+                # CRITICAL FIX: Calculate mood BEFORE POML generation (not after!)
+                try:
+                    mood_result = self.adjust_user_mood(user_id, content)
+                    if isinstance(mood_result, tuple) and len(mood_result) == 2:
+                        mood_points, message_classification = mood_result
+                    else:
+                        print(f"[ERROR] adjust_user_mood returned unexpected result: {mood_result}")
+                        mood_points = 0.0
+                        message_classification = None
+                except Exception as e:
+                    print(f"[ERROR] adjust_user_mood failed: {e}")
+                    mood_points = 0.0
+                    message_classification = None
+                
+                tone = self.get_tone_from_mood(mood_points)
+                print(f"\033[92m[MOOD FIX] Using mood_points={mood_points}, tone={tone} for POML\033[0m")
+                
+                # Print classification details for debugging
+                if message_classification:
+                    print(f"\033[94m[MOOD AI] User {user_id}: {self.get_user_mood(user_id):.1f} -> {mood_points:.1f}\033[0m")
+                    print(f"\033[94m         Vibe: {message_classification.vibe}, Intent: {message_classification.intent}\033[0m")
+                    print(f"\033[94m         Intensity: {message_classification.emotional_intensity}, Tone: {tone}\033[0m")
+                    print(f"\033[94m         Message Type: {message_classification.message_type}, Importance: {message_classification.importance_score:.2f}\033[0m")
+
+                # Try POML with CORRECT mood data
                 poml_start = time.time()
                 poml_result = await self.generate_poml_response(
                     content,
@@ -5338,24 +2816,7 @@ Generate ONE short status (under 30 chars):"""
                 else:
                     print(f"[TIMING] POML processing: {poml_duration:.2f}s (not used)")
 
-                # Process emotional memory (NEW!) - Will be handled after we get mood classification
-
-                # Update user mood and get message classification (moved from generate_poml_response)
-                try:
-                    mood_result = self.adjust_user_mood(user_id, content)
-                    if isinstance(mood_result, tuple) and len(mood_result) == 2:
-                        mood_points, message_classification = mood_result
-                        
-                    else:
-                        print(f"[ERROR] adjust_user_mood returned unexpected result: {mood_result}")
-                        mood_points = 0.0
-                        message_classification = None
-                except Exception as e:
-                    print(f"[ERROR] adjust_user_mood failed: {e}")
-                    mood_points = 0.0
-                    message_classification = None
-                
-                tone = self.get_tone_from_mood(mood_points)
+                # Process emotional memory with the already-calculated mood classification
                 
                 # Now process emotional memory with AI classification
                 if self.emotional_memory:
@@ -5502,6 +2963,7 @@ Generate ONE short status (under 30 chars):"""
                     final_response = await self.ollama.chat(
                         model=self.current_model,
                         messages=optimized_messages,
+                        format="json",  # Force JSON format for structured responses
                         options={
                             "temperature": 0.6,
                             "top_p": 0.95,
@@ -5698,19 +3160,75 @@ Generate ONE short status (under 30 chars):"""
                 if used_poml and response_text:
                     try:
                         # Try to parse JSON response from POML schema
-                        if response_text.strip().startswith('{'):
-                            json_response = json.loads(response_text)
+                        json_text = response_text.strip()
+                        if json_text.startswith('{'):
+                            try:
+                                json_response = json.loads(json_text)
+                            except json.JSONDecodeError:
+                                # Extract JSON from text with extra content
+                                json_match = re.search(r'\{.*\}', json_text, re.DOTALL)
+                                if json_match:
+                                    json_response = json.loads(json_match.group())
+                                else:
+                                    raise json.JSONDecodeError("No valid JSON found", json_text, 0)
+                            
                             if 'message' in json_response:
                                 actual_message = json_response['message']
                                 mood = json_response.get('mood', 'neutral')
                                 emoji = json_response.get('emoji', '')
+                                mood_points_change = json_response.get('mood_points', None)
 
-                                # Create rich response with mood info
+                                # Create rich response with mood info  
                                 response_text = f"{actual_message} {emoji}"
+                                print(f"\033[96m[JSON PARSE] Successfully parsed: mood={mood}, emoji={emoji}\033[0m")
+                                
+                                # CRITICAL: Update stored mood points based on AI's response
+                                if mood_points_change is not None:
+                                    try:
+                                        # Direct mood_points value from AI
+                                        if isinstance(mood_points_change, (int, float)):
+                                            new_mood = float(mood_points_change)
+                                        elif isinstance(mood_points_change, str):
+                                            new_mood = float(mood_points_change)
+                                        elif isinstance(mood_points_change, list) and len(mood_points_change) > 0:
+                                            # Handle case where AI returns [9.17] instead of 9.17
+                                            new_mood = float(mood_points_change[0])
+                                            print(f"[MOOD FEEDBACK] Fixed list format: {mood_points_change} -> {new_mood}")
+                                        else:
+                                            print(f"[MOOD FEEDBACK] Invalid mood_points type: {type(mood_points_change)}, value: {mood_points_change}")
+                                            raise ValueError(f"Invalid mood_points type: {type(mood_points_change)}")
+                                        
+                                        self.mood_points[user_id] = max(-10, min(10, new_mood))
+                                        print(f"\033[93m[MOOD FEEDBACK] AI set mood_points to {new_mood} for user {user_id}\033[0m")
+                                        self.save_persistent_state()  # Save mood changes immediately
+                                    except (ValueError, TypeError) as e:
+                                        print(f"[MOOD FEEDBACK] Failed to parse mood_points '{mood_points_change}': {e}")
+                                        print(f"[MOOD FEEDBACK] Falling back to mood string adjustment")
+                                        mood_points_change = None  # Fall back to mood string adjustment
+                                else:
+                                    # Convert mood string to mood adjustment
+                                    mood_adjustments = {
+                                        "dere-hot": 1.0,      # Very positive
+                                        "cheerful": 0.5,      # Positive  
+                                        "soft-dere": 0.2,     # Slightly positive
+                                        "neutral": 0.0,       # No change
+                                        "classic-tsun": -0.3,  # Slightly negative
+                                        "grumpy-tsun": -0.8,   # Negative
+                                        "explosive-tsun": -1.5 # Very negative
+                                    }
+                                    
+                                    adjustment = mood_adjustments.get(mood, 0.0)
+                                    if adjustment != 0.0:
+                                        current_mood = self.get_user_mood(user_id)
+                                        new_mood = max(-10, min(10, current_mood + adjustment))
+                                        self.mood_points[user_id] = new_mood
+                                        print(f"\033[93m[MOOD FEEDBACK] AI response mood '{mood}' adjusted user {user_id} mood: {current_mood:.1f} -> {new_mood:.1f} ({adjustment:+.1f})\033[0m")
+                                        self.save_persistent_state()  # Save mood changes immediately
 
                                 # Mood embed removed - now available as !mood command
-                    except json.JSONDecodeError:
-                        # Not JSON, use response as-is
+                    except (json.JSONDecodeError, Exception) as e:
+                        # Not JSON or parsing failed, use response as-is
+                        print(f"[JSON PARSE] Failed to parse JSON: {e}")
                         pass
 
                 # Modern anti-repetition check using memory system
@@ -5738,18 +3256,30 @@ Generate ONE short status (under 30 chars):"""
                     # Send first embed with view, then additional embeds
                     embed, view = embeds_to_send[0]
                     if view:
-                        await message.reply(response_text, embed=embed, view=view)
+                        try:
+                            await message.reply(response_text, embed=embed, view=view)
+                        except discord.HTTPException:
+                            await message.channel.send(response_text, embed=embed, view=view)
                     else:
-                        await message.reply(response_text, embed=embed)
+                        try:
+                            await message.reply(response_text, embed=embed)
+                        except discord.HTTPException:
+                            await message.channel.send(response_text, embed=embed)
                     
                     # Send additional embeds if any (without views to avoid clutter)
                     for embed, _ in embeds_to_send[1:]:
                         await message.channel.send(embed=embed)
                 elif embeds:
                     # Fallback to old embed system
-                    await message.reply(response_text, embeds=embeds[:10])  # Discord limit
+                    try:
+                        await message.reply(response_text, embeds=embeds[:10])  # Discord limit
+                    except discord.HTTPException:
+                        await message.channel.send(response_text, embeds=embeds[:10])
                 else:
-                    await message.reply(response_text)
+                    try:
+                        await message.reply(response_text)
+                    except discord.HTTPException:
+                        await message.channel.send(response_text)
                 
                 send_end_time = time.time()
                 total_time = send_end_time - start_time
@@ -5761,7 +3291,10 @@ Generate ONE short status (under 30 chars):"""
         except Exception as e:
             error_time = time.time()
             print(f"[ERROR] Error handling mention at {error_time} (elapsed: {error_time - start_time:.2f}s): {e}")
-            await message.reply("Sorry, I encountered an error processing your message.")
+            try:
+                await message.reply("Sorry, I encountered an error processing your message.")
+            except discord.HTTPException:
+                await message.channel.send("Sorry, I encountered an error processing your message.")
 
     def _process_emotional_memory(self, user_id: str, content: str, username: str, message_classification=None) -> None:
         """Process and store emotional memories from user messages using AI classification when available"""
@@ -5773,10 +3306,15 @@ Generate ONE short status (under 30 chars):"""
             
             # Use AI classification if available, otherwise fall back to keyword analysis
             if message_classification and hasattr(message_classification, 'message_type'):
-                # AI-powered classification
+                # AI-powered classification with confidence threshold
                 memory_type = message_classification.message_type
                 importance_score = message_classification.importance_score
                 emotional_context = f"ai_classified_{message_classification.intent}"
+                
+                # Only store memory if confidence is high enough (55% threshold)
+                if message_classification.confidence < 0.55:
+                    print(f"[EMOTIONAL MEMORY] Skipping memory storage - low confidence: {message_classification.confidence:.2f}")
+                    return
                 
                 # Calculate emotional score based on AI classification
                 emotional_score = 0.0
@@ -5797,66 +3335,31 @@ Generate ONE short status (under 30 chars):"""
                 
                 print(f"[EMOTIONAL MEMORY AI] AI classified: {memory_type}, importance {importance_score:.2f}, emotional score {emotional_score:.1f}")
                 
+                # Store the memory (AI path only)
+                self.emotional_memory.add_memory(
+                    user_id=user_id,
+                    content=content,
+                    memory_type=memory_type,
+                    importance_score=importance_score,
+                    emotional_context=emotional_context
+                )
+                
+                # Update user mood based on emotional content
+                if emotional_score != 0.0:
+                    self.emotional_memory.update_user_mood(
+                        user_id=user_id,
+                        mood_change=emotional_score,
+                        reason=f"Message content analysis: {emotional_context}"
+                    )
+                
+                # Evolve personality based on interaction quality
+                interaction_quality = 0.5 + (importance_score * 0.5)  # Base 0.5 + memory importance
+                self.emotional_memory.evolve_personality(user_id, interaction_quality)
+                
             else:
-                # Fallback to simple keyword-based analysis
-                content_lower = content.lower()
-                
-                # Analyze emotional content
-                emotional_score = 0.0
-                memory_type = "CHAT"
-                importance_score = 0.3
-                emotional_context = "neutral"
-                
-                # Check for personal information
-                personal_keywords = ["i like", "i love", "i hate", "my favorite", "i am", "i'm", "my name is"]
-                if any(keyword in content_lower for keyword in personal_keywords):
-                    memory_type = "PERSONAL"
-                    importance_score = 0.7
-                    emotional_context = "personal_discovery"
-                    emotional_score = 10.0
-                
-                # Check for questions (potential tool knowledge)
-                if "?" in content or any(word in content_lower for word in ["what is", "how to", "where is", "when", "why"]):
-                    memory_type = "MEMORY"
-                    importance_score = 0.6
-                    emotional_context = "curious"
-                    emotional_score = 5.0
-                
-                # Check for emotional expressions
-                positive_words = ["happy", "excited", "great", "awesome", "love", "like", "good", "nice"]
-                negative_words = ["sad", "angry", "upset", "bad", "hate", "terrible", "awful", "worried"]
-                
-                if any(word in content_lower for word in positive_words):
-                    emotional_score += 15.0
-                    emotional_context = "positive"
-                    importance_score = max(importance_score, 0.5)
-                elif any(word in content_lower for word in negative_words):
-                    emotional_score -= 15.0
-                    emotional_context = "negative"
-                    importance_score = max(importance_score, 0.5)
-                
-                print(f"[EMOTIONAL MEMORY FALLBACK] Keyword analysis: {memory_type}, importance {importance_score:.2f}, emotional score {emotional_score:.1f}")
-            
-            # Store the memory
-            self.emotional_memory.add_memory(
-                user_id=user_id,
-                content=content,
-                memory_type=memory_type,
-                importance_score=importance_score,
-                emotional_context=emotional_context
-            )
-            
-            # Update user mood based on emotional content
-            if emotional_score != 0.0:
-                            self.emotional_memory.update_user_mood(
-                user_id=user_id,
-                mood_change=emotional_score,
-                reason=f"Message content analysis: {emotional_context}"
-            )
-            
-            # Evolve personality based on interaction quality
-            interaction_quality = 0.5 + (importance_score * 0.5)  # Base 0.5 + memory importance
-            self.emotional_memory.evolve_personality(user_id, interaction_quality)
+                # No AI available, skip emotional memory processing
+                print("[EMOTIONAL MEMORY] AI Intent Classifier not available, skipping memory processing")
+                return
             
         except Exception as e:
             print(f"[EMOTIONAL MEMORY ERROR] Failed to process emotional memory: {e}")
@@ -6128,28 +3631,9 @@ IMPORTANT: When users ask you to search, look up, find, or get information - you
 
 
 # =============================================================================
-# MODEL SELECTION VIEW
+# COMMAND COG
 # =============================================================================
 
-class ModelSelectView(discord.ui.View):
-    """Enhanced model selection with type switching and pagination"""
-
-    def __init__(self, models, bot, model_type="main", page=1):
-        super().__init__(timeout=120)  # Extended timeout for model switching
-        self.bot = bot
-        self.all_models = models
-        self.model_type = model_type
-        self.page = page
-        self.models_per_page = 20  # Leave room for type selector
-
-        # Model categorization based on common patterns
-        self.model_categories = {
-            "main": self.categorize_main_models(models),
-            "vision": self.categorize_vision_models(models),
-            "analysis": self.categorize_analysis_models(models),
-            "code": self.categorize_code_models(models),
-            "embedding": self.categorize_embedding_models(models)
-        }
 
         self.current_models = self.model_categories.get(model_type, models)
         self.total_pages = (len(self.current_models) + self.models_per_page - 1) // self.models_per_page
@@ -6411,31 +3895,168 @@ class BotCommands(commands.Cog):
         embed.add_field(name="General", value="`!ping` - Test\n`!bothelp` - This help", inline=False)
         embed.add_field(name="Model", value="`!model` - Show models\n`!status` - Bot status", inline=False)
         embed.add_field(name="Memory", value="`!clear` - Clear history\n`!memory` - Memory stats", inline=False)
-        embed.add_field(name="POML", value="`!poml` - POML status\n`!clearcache` - Clear POML cache", inline=False)
+        embed.add_field(name="POML", value="`!poml` - POML status\n`!clearcache` - Clear POML cache\n`!purgeall` - 🚨 ADMIN: Complete memory purge", inline=False)
         embed.add_field(name="Emotional Memory", value="`!emotion` - Show emotional profile\n`!memories` - Show memories\n`!emotionstats` - System stats", inline=False)
         embed.add_field(name="Vector Tool Knowledge", value="`!toolsearch` - Search tool knowledge\n`!toolstats` - Tool knowledge stats", inline=False)
         await ctx.send(embed=embed)
     
     @commands.command(name='memory')
     async def memory_stats(self, ctx):
-        """Show conversation memory statistics"""
-        channel_id = str(ctx.channel.id)
-        stats = self.bot.memory.get_memory_stats(channel_id)
-        context = self.bot.memory.get_conversation_context(channel_id)
+        """Show detailed user memory from sleep agent system"""
+        user_id = str(ctx.author.id)
         
-        embed = discord.Embed(title="🧠 Conversation Memory Stats", color=0x9966cc)
-        embed.add_field(name="Total Messages", value=f"{stats['total_messages']}", inline=True)
-        embed.add_field(name="User Messages", value=f"{stats['user_messages']}", inline=True) 
-        embed.add_field(name="Bot Messages", value=f"{stats['bot_messages']}", inline=True)
-        embed.add_field(name="Context Window", value=f"{stats['recent_context_messages']}/8 messages", inline=True)
-        embed.add_field(name="Has Summary", value="✅" if stats['has_summary'] else "❌", inline=True)
-        embed.add_field(name="Context Tokens", value=f"~{stats['estimated_context_tokens']}", inline=True)
-        embed.add_field(name="Memory Efficiency", value=f"{stats['memory_efficiency']:.1%}", inline=True)
-        
-        if context.summary:
-            embed.add_field(name="Summary", value=context.summary[:100] + "..." if len(context.summary) > 100 else context.summary, inline=False)
+        # Get sleep agent memory if available
+        if hasattr(self.bot, 'sleep_agent') and self.bot.sleep_agent:
+            sleep_memory = self.bot.sleep_agent.get_user_memory_summary(user_id)
+            
+            # DEBUG: Check Discord bot's tracking vs sleep agent tracking
+            discord_activity = self.bot.user_last_activity.get(user_id, 0)
+            discord_messages = len(self.bot.user_conversation_history.get(user_id, []))
+            
+            embed = discord.Embed(title="🧠 Your Memory Profile", color=0x9966cc)
+            embed.set_footer(text=f"Debug - Discord: {discord_messages} msgs, last: {discord_activity} | Sleep: {sleep_memory.get('message_count', 0)} msgs, last: {sleep_memory.get('last_activity', 0)}")
+            
+            # Stats row
+            last_activity = sleep_memory.get('last_activity', 0)
+            activity_text = f"<t:{int(last_activity)}:R>" if last_activity > 0 else "🆕 First time"
+            
+            embed.add_field(name="📊 Blocks", value=f"{sleep_memory.get('block_count', 0)}", inline=True)
+            embed.add_field(name="⏰ Last Seen", value=activity_text, inline=True)
+            embed.add_field(name="💬 Messages", value=f"{sleep_memory.get('message_count', 0)}", inline=True)
+            
+            # Show memory blocks with better formatting
+            blocks = sleep_memory.get('blocks', {})
+            for block_name, block_data in blocks.items():
+                preview = block_data.get('value_preview', '').strip()
+                if preview:
+                    # Clean up the preview
+                    if len(preview) > 150:
+                        preview = preview[:150] + "..."
+                    
+                    # Better icons and formatting
+                    icon = "💭" if block_name == "conversation_context" else "❤️" if block_name == "behavioral_patterns" else "⚙️" if block_name == "user_preferences" else "👤"
+                    
+                    embed.add_field(
+                        name=f"{icon} {block_name.replace('_', ' ').title()}",
+                        value=preview,
+                        inline=False
+                    )
+            
+            # Show FAISS memory stats with better formatting
+            faiss_stats = sleep_memory.get('faiss_memory', {})
+            vectors = faiss_stats.get('total_vectors', 0)
+            index_type = faiss_stats.get('index_type', 'None')
+            
+            vector_status = "🔍 Active" if vectors > 0 else "💤 Empty"
+            embed.add_field(
+                name="🧮 Vector Memory",
+                value=f"{vector_status}\n{vectors} vectors stored",
+                inline=True
+            )
+            
+            # Add emotional memory data if available
+            if hasattr(self.bot, 'emotional_memory') and self.bot.emotional_memory:
+                try:
+                    print(f"[DEBUG] Trying to get emotional profile for user {user_id}")
+                    profile = self.bot.emotional_memory.get_user_profile(user_id)
+                    print(f"[DEBUG] Got profile: {profile.username if profile else 'None'}")
+                    
+                    embed.add_field(name="\u200b", value="\u200b", inline=False)  # Spacer
+                    embed.add_field(
+                        name="💝 Emotional Profile",
+                        value=f"**Mood:** {profile.current_mood} ({profile.mood_points:.1f}) | **Trust:** {profile.trust_score*100:.0f}%\n**Memories:** {len(profile.memories)} stored",
+                        inline=False
+                    )
+                    
+                    # Show top personality traits
+                    traits = []
+                    for trait, value in profile.personality_traits.items():
+                        if value > 0.7:  # Only show strong traits (assuming 0-1 scale)
+                            traits.append(f"{trait.title()}: {value*100:.0f}%")
+                    
+                    if traits:
+                        embed.add_field(
+                            name="🎭 Strong Traits", 
+                            value=" • ".join(traits[:3]),  # Top 3 traits
+                            inline=False
+                        )
+                    
+                except Exception as e:
+                    embed.add_field(name="💝 Emotional Profile", value=f"❌ Error: {str(e)}", inline=False)
+        else:
+            embed = discord.Embed(title="🧠 Memory System", description="❌ Sleep Agent not available", color=0xff6666)
             
         await ctx.send(embed=embed)
+        
+    @commands.command(name='allmemories')
+    async def detailed_memories(self, ctx):
+        """Show paginated detailed memories from all systems with UI buttons"""
+        user_id = str(ctx.author.id)
+        
+        # Collect all memories from different systems
+        all_memories = []
+        
+        # Get emotional memories
+        if hasattr(self.bot, 'emotional_memory') and self.bot.emotional_memory:
+            try:
+                profile = self.bot.emotional_memory.get_user_profile(user_id)
+                if profile and hasattr(profile, 'memories') and profile.memories:
+                    for memory in profile.memories[:50]:  # Limit to recent 50
+                        # Handle both dict and object access patterns
+                        content = memory.get('content', '') if isinstance(memory, dict) else getattr(memory, 'content', '')
+                        memory_type = memory.get('memory_type', 'UNKNOWN') if isinstance(memory, dict) else getattr(memory, 'memory_type', 'UNKNOWN')
+                        score = memory.get('importance_score', 0) if isinstance(memory, dict) else getattr(memory, 'importance_score', 0)
+                        timestamp = memory.get('timestamp', 0) if isinstance(memory, dict) else getattr(memory, 'timestamp', 0)
+                        
+                        all_memories.append({
+                            'source': '💝 Emotional',
+                            'content': str(content)[:100] + ('...' if len(str(content)) > 100 else ''),
+                            'type': str(memory_type),
+                            'score': float(score) if score else 0.0,
+                            'timestamp': float(timestamp) if timestamp else 0.0
+                        })
+            except Exception as e:
+                print(f"[DEBUG] Error getting emotional memories: {e}")
+        
+        # Get sleep agent memories
+        if hasattr(self.bot, 'sleep_agent') and self.bot.sleep_agent:
+            try:
+                sleep_memory = self.bot.sleep_agent.get_user_memory_summary(user_id)
+                blocks = sleep_memory.get('blocks', {})
+                for block_name, block_data in blocks.items():
+                    if block_data.get('value_preview'):
+                        all_memories.append({
+                            'source': '🧠 Sleep Agent',
+                            'content': block_data['value_preview'][:100] + ('...' if len(block_data['value_preview']) > 100 else ''),
+                            'type': block_name.replace('_', ' ').title(),
+                            'score': 1.0,
+                            'timestamp': block_data.get('last_updated', 0)
+                        })
+            except Exception as e:
+                print(f"[DEBUG] Error getting sleep agent memories: {e}")
+        
+        # Sort by importance score and timestamp
+        all_memories.sort(key=lambda x: (x['score'], x['timestamp']), reverse=True)
+        
+        if not all_memories:
+            embed = discord.Embed(title="📚 Detailed Memories", description="No memories found", color=0xff6666)
+            await ctx.send(embed=embed)
+            return
+        
+        # Use the bot's built-in pagination system
+        def memory_formatter(memory, idx):
+            timestamp_text = f"<t:{int(memory['timestamp'])}:R>" if memory['timestamp'] > 0 else "Unknown time"
+            return f"**{memory['source']} - {memory['type']}** ({memory['score']:.2f})\n{memory['content']}\n*{timestamp_text}*"
+        
+        embed, view = self.bot.create_paginated_embed(
+            title="📚 Detailed Memories",
+            items=all_memories,
+            items_per_page=8,
+            color=0x9966cc,
+            item_formatter=memory_formatter
+        )
+        
+        await ctx.send(embed=embed, view=view)
     
     @commands.command()
     async def ping(self, ctx):
@@ -6540,15 +4161,15 @@ class BotCommands(commands.Cog):
             inline=True
         )
 
-        # Add mood description
+        # Add mood description - MUST match POML personality.poml tone ranges
         mood_descriptions = {
-            "dere-hot": "💕 Overflowing sweetness!",
-            "cheerful": "😊 Happy and playful",
-            "soft-tsun": "😌 Mildly tsundere",
-            "classic-tsun": "😤 Traditional tsundere",
-            "grumpy-tsun": "😠 Annoyed but helpful",
-            "cold-tsun": "🥶 Cold but not mean",
-            "explosive-tsun": "💥 Very angry tsundere!"
+            "dere-hot": "💕 Overflowing sweetness, sparkly",
+            "cheerful": "😊 Flirty and warm, teasing",
+            "soft-dere": "😌 Chill and slightly flirty",
+            "neutral": "😐 Chill but sassy default mode",
+            "classic-tsun": "😤 Flustered denials, tsundere",
+            "grumpy-tsun": "😠 Sassy and snappy, annoyed", 
+            "explosive-tsun": "💥 Very mad tsundere outbursts!"
         }
 
         embed.add_field(
@@ -6693,6 +4314,185 @@ class BotCommands(commands.Cog):
         except Exception as e:
             await ctx.send(f"Failed to clear cache: {str(e)}")
 
+    @commands.command(name='purgeall')
+    @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
+    async def purge_all_memory(self, ctx, target: str = None):
+        """🚨 ADMIN ONLY: Complete memory purge - clears ALL memory systems"""
+        try:
+            if target is None:
+                # Purge command invoker by default
+                user_id = str(ctx.author.id)
+                scope = f"user {ctx.author.mention}"
+            elif target.lower() == "all":
+                # Nuclear option - purge entire bot
+                scope = "**ENTIRE BOT MEMORY**"
+                
+                # Require explicit confirmation for nuclear option
+                embed = discord.Embed(
+                    title="⚠️ NUCLEAR MEMORY PURGE WARNING",
+                    description="This will **PERMANENTLY DELETE ALL MEMORY** for every user!\n\nType `CONFIRM_NUCLEAR_PURGE` within 30 seconds to proceed.",
+                    color=0xFF0000
+                )
+                await ctx.send(embed=embed)
+                
+                def check(m):
+                    return m.author == ctx.author and m.channel == ctx.channel and m.content == "CONFIRM_NUCLEAR_PURGE"
+                
+                try:
+                    await self.bot.wait_for('message', check=check, timeout=30)
+                except:
+                    await ctx.send("❌ Nuclear purge cancelled - no confirmation received.")
+                    return
+                    
+                user_id = "all"
+            else:
+                # Purge specific user ID
+                user_id = target
+                scope = f"user ID `{user_id}`"
+            
+            purge_results = []
+            
+            # 1. SLEEP AGENT MEMORY SYSTEM
+            if hasattr(self.bot, 'sleep_agent') and self.bot.sleep_agent:
+                try:
+                    if user_id == "all":
+                        # Nuclear: Clear all sleep agent memory
+                        self.bot.sleep_agent.memory_manager.blocks.clear()
+                        self.bot.sleep_agent.last_activity.clear()
+                        self.bot.sleep_agent.message_counts.clear()
+                        if hasattr(self.bot.sleep_agent, 'faiss_memory') and self.bot.sleep_agent.faiss_memory:
+                            self.bot.sleep_agent.faiss_memory.user_indices.clear()
+                            self.bot.sleep_agent.faiss_memory.user_metadata.clear()
+                        self.bot.sleep_agent.memory_manager._save_memory()
+                        purge_results.append("✅ Sleep Agent Memory: ALL users purged")
+                    else:
+                        # Target specific user
+                        self.bot.sleep_agent.reset_user_memory(user_id)
+                        if hasattr(self.bot.sleep_agent, 'faiss_memory') and self.bot.sleep_agent.faiss_memory:
+                            self.bot.sleep_agent.faiss_memory.user_indices.pop(user_id, None)
+                            self.bot.sleep_agent.faiss_memory.user_metadata.pop(user_id, None)
+                        self.bot.sleep_agent.memory_manager._save_memory()
+                        purge_results.append(f"✅ Sleep Agent Memory: User {user_id} purged")
+                except Exception as e:
+                    purge_results.append(f"❌ Sleep Agent Memory: {str(e)}")
+            else:
+                purge_results.append("ℹ️ Sleep Agent Memory: Not available")
+            
+            # 2. EMOTIONAL MEMORY SYSTEM  
+            if hasattr(self.bot, 'emotional_memory') and self.bot.emotional_memory:
+                try:
+                    if user_id == "all":
+                        # Nuclear: Clear all emotional memory
+                        self.bot.emotional_memory.user_profiles.clear()
+                        self.bot.emotional_memory.save_all_profiles()
+                        purge_results.append("✅ Emotional Memory: ALL users purged")
+                    else:
+                        # Target specific user
+                        if user_id in self.bot.emotional_memory.user_profiles:
+                            del self.bot.emotional_memory.user_profiles[user_id]
+                            self.bot.emotional_memory.save_all_profiles()
+                            purge_results.append(f"✅ Emotional Memory: User {user_id} purged")
+                        else:
+                            purge_results.append(f"ℹ️ Emotional Memory: User {user_id} not found")
+                except Exception as e:
+                    purge_results.append(f"❌ Emotional Memory: {str(e)}")
+            else:
+                purge_results.append("ℹ️ Emotional Memory: Not available")
+            
+            # 3. CONVERSATION MEMORY SYSTEM
+            if hasattr(self.bot, 'memory') and self.bot.memory:
+                try:
+                    if user_id == "all":
+                        # Nuclear: Clear all conversation memory
+                        self.bot.memory.user_contexts.clear()
+                        if hasattr(self.bot.memory, 'conversation_summaries'):
+                            self.bot.memory.conversation_summaries.clear()
+                        purge_results.append("✅ Conversation Memory: ALL users purged")
+                    else:
+                        # Target specific user
+                        user_id_int = int(user_id)
+                        if user_id_int in self.bot.memory.user_contexts:
+                            del self.bot.memory.user_contexts[user_id_int]
+                        if hasattr(self.bot.memory, 'conversation_summaries') and user_id_int in self.bot.memory.conversation_summaries:
+                            del self.bot.memory.conversation_summaries[user_id_int]
+                        purge_results.append(f"✅ Conversation Memory: User {user_id} purged")
+                except Exception as e:
+                    purge_results.append(f"❌ Conversation Memory: {str(e)}")
+            else:
+                purge_results.append("ℹ️ Conversation Memory: Not available")
+            
+            # 4. DISCORD BOT TRACKING DATA
+            try:
+                if user_id == "all":
+                    # Nuclear: Clear all bot tracking
+                    if hasattr(self.bot, 'user_conversation_history'):
+                        self.bot.user_conversation_history.clear()
+                    if hasattr(self.bot, 'user_last_activity'):
+                        self.bot.user_last_activity.clear()
+                    if hasattr(self.bot, 'mood_points'):
+                        self.bot.mood_points.clear()
+                    purge_results.append("✅ Bot Tracking Data: ALL users purged")
+                else:
+                    # Target specific user
+                    user_id_int = int(user_id)
+                    if hasattr(self.bot, 'user_conversation_history'):
+                        self.bot.user_conversation_history.pop(user_id_int, None)
+                    if hasattr(self.bot, 'user_last_activity'):
+                        self.bot.user_last_activity.pop(user_id_int, None)
+                    if hasattr(self.bot, 'mood_points'):
+                        self.bot.mood_points.pop(user_id, None)  # mood_points uses string keys
+                    purge_results.append(f"✅ Bot Tracking Data: User {user_id} purged")
+            except Exception as e:
+                purge_results.append(f"❌ Bot Tracking Data: {str(e)}")
+            
+            # 5. POML CACHE SYSTEM
+            try:
+                if hasattr(self.bot, 'poml_cache'):
+                    old_count = len(self.bot.poml_cache.compiled_results)
+                    self.bot.poml_cache.compiled_results.clear()
+                    self.bot.poml_cache.cache_hits = 0
+                    self.bot.poml_cache.cache_misses = 0
+                    purge_results.append(f"✅ POML Cache: {old_count} entries cleared")
+                else:
+                    purge_results.append("ℹ️ POML Cache: Not available")
+            except Exception as e:
+                purge_results.append(f"❌ POML Cache: {str(e)}")
+            
+            # 6. SAVE PERSISTENT STATE
+            try:
+                self.bot.save_persistent_state()
+                purge_results.append("✅ Persistent State: Saved to disk")
+            except Exception as e:
+                purge_results.append(f"❌ Persistent State: {str(e)}")
+            
+            # Send results
+            embed = discord.Embed(
+                title="🗑️ COMPLETE MEMORY PURGE",
+                description=f"**Target:** {scope}\n\n**Results:**\n" + "\n".join(purge_results),
+                color=0xFF6600 if user_id == "all" else 0x00FF00
+            )
+            
+            if user_id == "all":
+                embed.add_field(
+                    name="⚠️ NUCLEAR PURGE COMPLETE", 
+                    value="All memory systems have been completely wiped. The bot will start fresh for all users.",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="ℹ️ User Purge Complete", 
+                    value="All memory for the specified user has been permanently deleted from all systems.",
+                    inline=False
+                )
+                
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            await ctx.send(f"❌ Error during memory purge: {str(e)}")
+            print(f"[PURGE ERROR] {e}")
+            import traceback
+            traceback.print_exc()
+
     @commands.command(name='emotion')
     async def emotional_profile(self, ctx, user: discord.Member = None):
         """Show emotional profile for a user (or yourself if no user specified)"""
@@ -6798,11 +4598,10 @@ class BotCommands(commands.Cog):
                 items=memories,
                 items_per_page=5,
                 color=0xff69b4,
-                item_formatter=lambda memory, idx: (
+                item_formatter=lambda memory, idx: 
                     f"**{memory.memory_type}** ({memory.importance_score:.1%})\n"
                     f"💭 {memory.content[:100]}{'...' if len(memory.content) > 100 else ''}\n"
                     f"😊 {memory.emotional_context} • {datetime.fromtimestamp(memory.timestamp).strftime('%m/%d %H:%M')}"
-                )
             )
             
             if view:
@@ -6812,46 +4611,101 @@ class BotCommands(commands.Cog):
                 
         except Exception as e:
             await ctx.send(f"❌ Failed to get memories: {str(e)}")
+    
+    @commands.command(name='fixstats')
+    @commands.is_owner()
+    async def fix_emotional_stats(self, ctx, user: discord.Member = None):
+        """Recalculate emotional memory stats for a user (owner only)"""
+        if not self.bot.emotional_memory:
+            await ctx.send("❌ Emotional Memory System is not available")
+            return
+            
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+        
+        try:
+            self.bot.emotional_memory.recalculate_user_stats(user_id)
+            await ctx.send(f"✅ Recalculated emotional stats for {target_user.display_name}")
+        except Exception as e:
+            await ctx.send(f"❌ Failed to recalculate stats: {str(e)}")
 
     @commands.command(name='emotionstats')
     @commands.check_any(commands.is_owner(), commands.has_permissions(administrator=True))
     async def emotional_system_stats(self, ctx):
         """Show emotional memory system statistics"""
-        if not self.bot.emotional_memory:
-            await ctx.send("❌ Emotional Memory System is not available")
-            return
-            
         try:
-            stats = self.bot.emotional_memory.get_system_stats()
-            
             embed = discord.Embed(
                 title="💝 Emotional Memory System Stats",
                 color=0xff69b4
             )
             
-            embed.add_field(
-                name="Total Users",
-                value=f"👥 {stats['total_users']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Total Memories",
-                value=f"🧠 {stats['total_memories']}",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Storage Directory",
-                value=f"📁 {stats['storage_directory']}",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="Last Save",
-                value=f"⏰ {datetime.fromtimestamp(stats['last_save']).strftime('%Y-%m-%d %H:%M:%S')}",
-                inline=False
-            )
+            # Check if we have the new sleep agent system
+            if hasattr(self.bot, 'sleep_agent') and self.bot.sleep_agent:
+                stats = self.bot.sleep_agent.get_system_status()
+                
+                embed.add_field(
+                    name="Total Users",
+                    value=f"👥 {stats['total_users']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Total Memory Blocks",
+                    value=f"🧠 {stats['total_memory_blocks']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Active Users",
+                    value=f"🟢 {stats['active_users']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Memory File",
+                    value=f"📁 {stats['memory_file']}",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="Configuration", 
+                    value=f"📊 Model: {stats['config']['model']}\n" +
+                          f"🔄 Trigger: {stats['config']['trigger_after_messages']} messages or {stats['config']['trigger_after_idle_minutes']} min idle\n" +
+                          f"💾 FAISS: {'✅' if stats['config']['enable_faiss'] else '❌'}\n" +
+                          f"🧠 Stream Thinking: {'✅' if stats['config']['stream_thinking'] else '❌'}",
+                    inline=False
+                )
+                
+            # Fallback to old emotional memory system
+            elif self.bot.emotional_memory:
+                stats = self.bot.emotional_memory.get_system_stats()
+                
+                embed.add_field(
+                    name="Total Users",
+                    value=f"👥 {stats['total_users']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Total Memories",
+                    value=f"🧠 {stats['total_memories']}",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Storage Directory",
+                    value=f"📁 {stats['storage_directory']}",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="Last Save",
+                    value=f"⏰ {datetime.fromtimestamp(stats['last_save']).strftime('%Y-%m-%d %H:%M:%S')}",
+                    inline=False
+                )
+            else:
+                await ctx.send("❌ No memory system available")
+                return
             
             await ctx.send(embed=embed)
             
@@ -6896,3 +4750,4 @@ if __name__ == "__main__":
     print("[INIT] Starting Optimized Discord Bot...")
     print("[INFO] Features: Ollama optimization, BPE tokenization, full tool suite, anti-repetition")
     asyncio.run(main())
+  

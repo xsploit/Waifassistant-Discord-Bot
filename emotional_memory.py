@@ -364,15 +364,84 @@ class EmotionalMemoryManager:
         
         profile.memories.append(memory)
         
+        # Update relationship metrics
+        profile.conversation_count += 1
+        profile.last_interaction = time.time()
+        
+        # Update familiarity based on number of interactions
+        # Familiarity increases logarithmically (0.0 to 1.0)
+        profile.familiarity_level = min(1.0, profile.conversation_count / 200.0)
+        
+        # Update relationship level based on conversation count and familiarity
+        if profile.conversation_count >= 100 and profile.familiarity_level >= 0.7:
+            profile.relationship_level = "close_friend"
+        elif profile.conversation_count >= 50 and profile.familiarity_level >= 0.4:
+            profile.relationship_level = "friend"  
+        elif profile.conversation_count >= 20 and profile.familiarity_level >= 0.1:
+            profile.relationship_level = "acquaintance"
+        else:
+            profile.relationship_level = "stranger"
+        
+        # Update trust score slightly with each positive interaction
+        if "positive" in emotional_context.lower() or importance_score > 0.7:
+            profile.trust_score = min(1.0, profile.trust_score + 0.005)
+        elif "negative" in emotional_context.lower() and importance_score > 0.5:
+            profile.trust_score = max(0.0, profile.trust_score - 0.01)
+        
         # Keep only most important memories (top 100 by importance)
         profile.memories.sort(key=lambda m: m.importance_score, reverse=True)
         if len(profile.memories) > 100:
             profile.memories = profile.memories[:100]
         
-        # Update storage
-        self.storage.update_user_profile(user_id, memories=profile.memories)
+        # Update storage with all changes
+        self.storage.update_user_profile(
+            user_id, 
+            memories=profile.memories,
+            conversation_count=profile.conversation_count,
+            familiarity_level=profile.familiarity_level,
+            relationship_level=profile.relationship_level,
+            trust_score=profile.trust_score,
+            last_interaction=profile.last_interaction
+        )
         
-        print(f"[EMOTIONAL MEMORY] Added {memory_type} memory for user {user_id}: {content[:50]}...")
+        print(f"[EMOTIONAL MEMORY] Added {memory_type} memory for user {user_id} (conv #{profile.conversation_count}, fam: {profile.familiarity_level:.1%}, rel: {profile.relationship_level}): {content[:50]}...")
+    
+    def recalculate_user_stats(self, user_id: str) -> None:
+        """Recalculate conversation count and relationship metrics based on existing memories"""
+        profile = self.storage.get_user_profile(user_id)
+        
+        # Update conversation count to match number of memories
+        actual_memory_count = len(profile.memories)
+        if actual_memory_count > profile.conversation_count:
+            profile.conversation_count = actual_memory_count
+            
+        # Recalculate familiarity
+        profile.familiarity_level = min(1.0, profile.conversation_count / 200.0)
+        
+        # Recalculate relationship level
+        if profile.conversation_count >= 100 and profile.familiarity_level >= 0.7:
+            profile.relationship_level = "close_friend"
+        elif profile.conversation_count >= 50 and profile.familiarity_level >= 0.4:
+            profile.relationship_level = "friend"  
+        elif profile.conversation_count >= 20 and profile.familiarity_level >= 0.1:
+            profile.relationship_level = "acquaintance"
+        else:
+            profile.relationship_level = "stranger"
+            
+        # Update last interaction from most recent memory
+        if profile.memories:
+            profile.last_interaction = max(memory.timestamp for memory in profile.memories)
+        
+        # Update storage
+        self.storage.update_user_profile(
+            user_id,
+            conversation_count=profile.conversation_count,
+            familiarity_level=profile.familiarity_level,
+            relationship_level=profile.relationship_level,
+            last_interaction=profile.last_interaction
+        )
+        
+        print(f"[EMOTIONAL MEMORY] Recalculated stats for user {user_id}: {profile.conversation_count} conversations, {profile.familiarity_level:.1%} familiarity, {profile.relationship_level}")
     
     def get_relevant_memories(self, user_id: str, query: str, limit: int = 5) -> List[EmotionalMemory]:
         """Get most relevant memories for a user (simple keyword matching for now)"""

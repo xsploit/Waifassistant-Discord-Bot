@@ -27,6 +27,14 @@ except ImportError:
     FAISS_AVAILABLE = False
     logging.warning("FAISS not available, using simple vector memory fallback")
 
+# Try to import SentenceTransformer for embeddings
+try:
+    from sentence_transformers import SentenceTransformer
+    EMBEDDING_AVAILABLE = True
+except ImportError:
+    EMBEDDING_AVAILABLE = False
+    logging.warning("SentenceTransformer not available, using fallback embeddings")
+
 # --- runtime import (for actual execution) ---
 try:
     from ollama import Client as _OllamaRuntimeClient  # type: ignore
@@ -51,7 +59,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AgentConfig:
     # Triggers
-    trigger_after_messages: int = 5
+    trigger_after_messages: int = 100
     trigger_after_idle_minutes: int = 30
 
     # Model/runtime
@@ -214,7 +222,17 @@ class FAISSMemoryManager:
         # Simple hash-based vector fallback if FAISS unavailable
         self.fallback_vectors: Dict[str, Dict[str, List[float]]] = {}
         
-        logger.info(f"FAISS Memory Manager initialized (FAISS available: {FAISS_AVAILABLE})")
+        # Initialize embedding model
+        self.embedding_model = None
+        if EMBEDDING_AVAILABLE:
+            try:
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # 384 dimensions
+                logger.info("SentenceTransformer embedding model loaded")
+            except Exception as e:
+                logger.warning(f"Failed to load embedding model: {e}")
+                self.embedding_model = None
+        
+        logger.info(f"FAISS Memory Manager initialized (FAISS: {FAISS_AVAILABLE}, Embeddings: {self.embedding_model is not None})")
     
     def _create_simple_vector(self, text: str) -> List[float]:
         """Create a simple hash-based vector when FAISS is not available"""
@@ -257,8 +275,13 @@ class FAISSMemoryManager:
                 self._create_faiss_index(user_id)
             
             if FAISS_AVAILABLE:
-                # Create embedding vector (placeholder - would use actual embedding model)
-                vector = np.random.rand(self.vector_dimension).astype('float32')
+                # Create real embedding vector
+                if self.embedding_model:
+                    vector = self.embedding_model.encode([text])[0].astype('float32')
+                else:
+                    # Fallback to random if no embedding model
+                    vector = np.random.rand(self.vector_dimension).astype('float32')
+                    logger.warning("Using random vector - embedding model not available")
                 
                 # Add to FAISS index
                 self.user_indexes[user_id].add(vector.reshape(1, -1))
@@ -315,8 +338,13 @@ class FAISSMemoryManager:
                 return []
             
             if FAISS_AVAILABLE and user_id in self.user_indexes:
-                # Create query vector
-                query_vector = np.random.rand(self.vector_dimension).astype('float32')
+                # Create real query embedding
+                if self.embedding_model:
+                    query_vector = self.embedding_model.encode([query_text])[0].astype('float32')
+                else:
+                    # Fallback to random if no embedding model
+                    query_vector = np.random.rand(self.vector_dimension).astype('float32')
+                    logger.warning("Using random query vector - embedding model not available")
                 
                 # Search FAISS index
                 distances, indices = self.user_indexes[user_id].search(
