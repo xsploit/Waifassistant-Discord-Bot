@@ -4695,7 +4695,7 @@ class BotCommands(commands.Cog):
     @commands.command(name='fixstats')
     @commands.is_owner()
     async def fix_emotional_stats(self, ctx, user: discord.Member = None):
-        """Recalculate emotional memory stats for a user (owner only)"""
+        """Recalculate emotional memory stats for a user (owner only) - fixes relationship levels"""
         if not self.bot.emotional_memory:
             await ctx.send("❌ Emotional Memory System is not available")
             return
@@ -4704,8 +4704,42 @@ class BotCommands(commands.Cog):
         user_id = str(target_user.id)
         
         try:
+            # Get stats before fix
+            profile_before = self.bot.emotional_memory.get_user_profile(user_id)
+            old_relationship = profile_before.relationship_level
+            old_familiarity = profile_before.familiarity_level
+            old_trust = profile_before.trust_score
+            
+            # Apply fix
             self.bot.emotional_memory.recalculate_user_stats(user_id)
-            await ctx.send(f"✅ Recalculated emotional stats for {target_user.display_name}")
+            
+            # Get stats after fix
+            profile_after = self.bot.emotional_memory.get_user_profile(user_id)
+            
+            embed = discord.Embed(
+                title=f"🔧 Fixed Stats for {target_user.display_name}",
+                color=0x00ff00
+            )
+            
+            embed.add_field(
+                name="📊 Changes Made",
+                value=f"**Relationship:** {old_relationship} → {profile_after.relationship_level}\n"
+                      f"**Familiarity:** {old_familiarity:.1%} → {profile_after.familiarity_level:.1%}\n"
+                      f"**Trust:** {old_trust:.1%} → {profile_after.trust_score:.1%}\n"
+                      f"**Memories:** {len(profile_after.memories)} messages",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎯 New Thresholds",
+                value="**Acquaintance:** 5+ messages\n"
+                      "**Friend:** 15+ messages\n"
+                      "**Close Friend:** 30+ messages",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            
         except Exception as e:
             await ctx.send(f"❌ Failed to recalculate stats: {str(e)}")
 
