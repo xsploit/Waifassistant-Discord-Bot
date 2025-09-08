@@ -75,3 +75,46 @@ Experiments/
 # Backup files
 *_backup_*.poml
 *_backup_*.json
+
+# Copy files (development duplicates)
+*copy.py
+*copy*.py
+*copy.poml
+*copy*.poml
+
+# Specific copy files identified
+optimized_discord_bot copy.py
+optimized_discord_bot copy 2.py
+optimized_discord_bot copy 3.py
+sleep_time_agent_core copy.py
+sleep_time_agent_core copy 2.py
+sleep_time_agent_core copy 3.py
+sleep_time_agent_core copy 4.py
+sleep_time_agent_core copy 5.py
+sleep_time_agent_core copy 6.py
+sleep_time_agent_core copy 7.py
+sleep_time_agent_core copy 8.py
+
+# Template copies
+templates/*copy*.poml
+templates/personality_advanced_test.poml
+templates/personality_advanced_working.poml
+templates/personality_backup.poml
+templates/personality_dynamic.poml
+templates/personality_simple_test.poml
+templates/test_*.poml
+
+# Documentation files (keep in repo but ignore in tracking)
+DUPLICATE_ANALYSIS_REPORT.md
+README_CORE_MODULE.md
+SLEEP_TIME_CHAT_README.md
+
+# Example/demo files
+discord_bot_example.py
+example_config_usage.py
+sleepy.py
+tool calling (1).py
+
+# Development files
+*.md.backup
+*.py.backup
