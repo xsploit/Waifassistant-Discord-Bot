@@ -3249,24 +3249,37 @@ Generate ONE short status (under 30 chars):"""
                                 response_text = f"{actual_message} {emoji}"
                                 print(f"\033[96m[JSON PARSE] Successfully parsed: mood={mood}, emoji={emoji}\033[0m")
                                 
-                                # CRITICAL: Update stored mood points based on AI's response
+                                # CRITICAL: Update stored mood points based on AI's response 
                                 if mood_points_change is not None:
                                     try:
-                                        # Direct mood_points value from AI
+                                        # Parse AI mood_points value
                                         if isinstance(mood_points_change, (int, float)):
-                                            new_mood = float(mood_points_change)
+                                            ai_mood_value = float(mood_points_change)
                                         elif isinstance(mood_points_change, str):
-                                            new_mood = float(mood_points_change)
+                                            ai_mood_value = float(mood_points_change)
                                         elif isinstance(mood_points_change, list) and len(mood_points_change) > 0:
                                             # Handle case where AI returns [9.17] instead of 9.17
-                                            new_mood = float(mood_points_change[0])
-                                            print(f"[MOOD FEEDBACK] Fixed list format: {mood_points_change} -> {new_mood}")
+                                            ai_mood_value = float(mood_points_change[0])
+                                            print(f"[MOOD FEEDBACK] Fixed list format: {mood_points_change} -> {ai_mood_value}")
                                         else:
                                             print(f"[MOOD FEEDBACK] Invalid mood_points type: {type(mood_points_change)}, value: {mood_points_change}")
                                             raise ValueError(f"Invalid mood_points type: {type(mood_points_change)}")
                                         
-                                        self.mood_points[user_id] = max(-10, min(10, new_mood))
-                                        print(f"\033[93m[MOOD FEEDBACK] AI set mood_points to {new_mood} for user {user_id}\033[0m")
+                                        # Treat AI mood_points as ADJUSTMENT, not absolute value
+                                        current_mood = self.get_user_mood(user_id)
+                                        
+                                        # Calculate adjustment based on AI's mood compared to current
+                                        adjustment = ai_mood_value - current_mood
+                                        
+                                        # Cap adjustments to reasonable ranges (0.1 to 1.0 as intended)
+                                        if adjustment > 0:
+                                            adjustment = min(adjustment, 1.0)  # Max +1.0 per interaction
+                                        else:
+                                            adjustment = max(adjustment, -1.0)  # Max -1.0 per interaction
+                                        
+                                        new_mood = max(-10, min(10, current_mood + adjustment))
+                                        self.mood_points[user_id] = new_mood
+                                        print(f"\033[93m[MOOD FEEDBACK] AI suggested {ai_mood_value:.2f}, current={current_mood:.2f}, adjustment={adjustment:+.2f} -> {new_mood:.2f}\033[0m")
                                         self.save_persistent_state()  # Save mood changes immediately
                                         # SYNC: Update emotional memory when AI changes mood
                                         if hasattr(self, 'emotional_memory') and self.emotional_memory:
